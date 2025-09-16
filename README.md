@@ -1,6 +1,14 @@
 # Miniplot
 
-Interactive chart visualization extension for DuckDB, allowing you to create beautiful data visualizations directly from SQL queries.
+Interactive chart visualization extension for DuckDB - bringing pandas + matplotlib style data visualization directly to SQL, without leaving your database.
+
+## 🎯 Mission
+
+**"Replace pandas + matplotlib with just DuckDB"**
+
+No more switching between pandas and matplotlib for data visualization.
+
+#### One tool. One query. Instant visualization.
 
 ## Features
 
