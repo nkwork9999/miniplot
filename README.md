@@ -1,86 +1,151 @@
 # Miniplot
 
-This repository is based on https://github.com/duckdb/extension-template, check it out if you want to build and ship your own DuckDB extension.
+Interactive chart visualization extension for DuckDB, allowing you to create beautiful data visualizations directly from SQL queries.
 
----
+## Features
 
-This extension, Miniplot, allow you to ... <extension_goal>.
+- 📊 **Multiple chart types**: Bar, Line, Scatter, and Area charts
+- 🖼️ **Native GUI rendering**: Charts open in native windows using Rust/Iced
+- 🚀 **Simple SQL interface**: Visualize data directly from SQL queries
+- 💻 **Cross-platform**: Works on macOS, Linux, and Windows
 
+## Installation
+
+### From Community Extensions (Coming Soon)
+
+```sql
+INSTALL miniplot FROM community;
+LOAD miniplot;
+```
+
+````
+
+### From Source
+
+```sql
+LOAD './build/release/extension/miniplot/miniplot.duckdb_extension';
+```
+
+## Usage
+
+### Bar Chart
+
+```sql
+SELECT bar_chart(
+    LIST_VALUE('Q1', 'Q2', 'Q3', 'Q4'),
+    LIST_VALUE(100, 150, 200, 180),
+    'Quarterly Sales'
+);
+```
+
+### Line Chart
+
+```sql
+SELECT line_chart(
+    LIST_VALUE('Jan', 'Feb', 'Mar', 'Apr', 'May'),
+    LIST_VALUE(5.2, 7.1, 12.5, 15.8, 20.3),
+    'Monthly Temperature'
+);
+```
+
+### Scatter Chart
+
+```sql
+SELECT scatter_chart(
+    LIST_VALUE(1.0, 2.0, 3.0, 4.0, 5.0),
+    LIST_VALUE(2.5, 5.0, 7.5, 10.0, 12.5),
+    'Correlation Analysis'
+);
+```
+
+### Area Chart
+
+```sql
+SELECT area_chart(
+    LIST_VALUE('Week1', 'Week2', 'Week3', 'Week4'),
+    LIST_VALUE(1000, 1500, 1300, 1800),
+    'Weekly Revenue'
+);
+```
 
 ## Building
+
+### Prerequisites
+
+- DuckDB development files
+- Rust toolchain (1.70+)
+- CMake
+- C++11 compiler
+
 ### Managing dependencies
+
 DuckDB extensions uses VCPKG for dependency management. Enabling VCPKG is very simple: follow the [installation instructions](https://vcpkg.io/en/getting-started) or just run the following:
+
 ```shell
 git clone https://github.com/Microsoft/vcpkg.git
 ./vcpkg/bootstrap-vcpkg.sh
 export VCPKG_TOOLCHAIN_PATH=`pwd`/vcpkg/scripts/buildsystems/vcpkg.cmake
 ```
-Note: VCPKG is only required for extensions that want to rely on it for dependency management. If you want to develop an extension without dependencies, or want to do your own dependency management, just skip this step. Note that the example extension uses VCPKG to build with a dependency for instructive purposes, so when skipping this step the build may not work without removing the dependency.
 
 ### Build steps
-Now to build the extension, run:
+
 ```sh
+# Clone with submodules
+git clone --recurse-submodules https://github.com/nkwork9999/miniplot.git
+cd miniplot
+
+# Build Rust components and extension
+./build.sh
+
+# Or manually:
+cd rust_lib && cargo build --release && cd ..
+cd chart_viewer && cargo build --release && cd ..
 make
 ```
+
 The main binaries that will be built are:
-```sh
-./build/release/duckdb
-./build/release/test/unittest
-./build/release/extension/miniplot/miniplot.duckdb_extension
-```
-- `duckdb` is the binary for the duckdb shell with the extension code automatically loaded.
-- `unittest` is the test runner of duckdb. Again, the extension is already linked into the binary.
-- `miniplot.duckdb_extension` is the loadable binary as it would be distributed.
+
+- `./build/release/duckdb` - DuckDB shell with the extension loaded
+- `./build/release/test/unittest` - Test runner
+- `./build/release/extension/miniplot/miniplot.duckdb_extension` - Loadable extension
 
 ## Running the extension
+
 To run the extension code, simply start the shell with `./build/release/duckdb`.
 
-Now we can use the features from the extension directly in DuckDB. The template contains a single scalar function `miniplot()` that takes a string arguments and returns a string:
-```
-D select miniplot('Jane') as result;
-┌───────────────┐
-│    result     │
-│    varchar    │
-├───────────────┤
-│ Miniplot Jane 🐥 │
-└───────────────┘
-```
-
 ## Running the tests
-Different tests can be created for DuckDB extensions. The primary way of testing DuckDB extensions should be the SQL tests in `./test/sql`. These SQL tests can be run using:
+
 ```sh
 make test
 ```
 
-### Installing the deployed binaries
-To install your extension binaries from S3, you will need to do two things. Firstly, DuckDB should be launched with the
-`allow_unsigned_extensions` option set to true. How to set this will depend on the client you're using. Some examples:
+## Architecture
 
-CLI:
-```shell
-duckdb -unsigned
+Miniplot uses a hybrid architecture:
+
+- **C++ Extension**: DuckDB interface
+- **Rust FFI Library**: Data processing
+- **Iced Application**: Chart rendering
+
+## Configuration
+
+Set custom chart viewer path if needed:
+
+```bash
+export CHART_VIEWER_PATH=/path/to/chart_viewer
 ```
 
-Python:
-```python
-con = duckdb.connect(':memory:', config={'allow_unsigned_extensions' : 'true'})
-```
+## Limitations
 
-NodeJS:
-```js
-db = new duckdb.Database(':memory:', {"allow_unsigned_extensions": "true"});
-```
+- Requires graphical environment (not suitable for headless servers)
+- Charts open in separate windows
+- External process launch may require security permissions
 
-Secondly, you will need to set the repository endpoint in DuckDB to the HTTP url of your bucket + version of the extension
-you want to install. To do this run the following SQL query in DuckDB:
-```sql
-SET custom_extension_repository='bucket.s3.eu-west-1.amazonaws.com/<your_extension_name>/latest';
-```
-Note that the `/latest` path will allow you to install the latest extension version available for your current version of
-DuckDB. To specify a specific version, you can pass the version instead.
+## License
 
-After running these steps, you can install and load your extension using the regular INSTALL/LOAD commands in DuckDB:
-```sql
-INSTALL miniplot
-LOAD miniplot
-```
+MIT License - see [LICENSE](LICENSE) file
+
+## Acknowledgments
+
+Based on [DuckDB Extension Template](https://github.com/duckdb/extension-template)
+````
