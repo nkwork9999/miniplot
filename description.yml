@@ -1,0 +1,14 @@
+# description.ymlを作成
+extension:
+  name: miniplot
+  description: Interactive chart visualization with Rust/Iced GUI
+  version: 0.0.1
+  language: C++
+  build: cmake
+  license: MIT
+  maintainers:
+    - nkwork9999
+
+repo:
+  github: nkwork9999/miniplot
+  ref: main
