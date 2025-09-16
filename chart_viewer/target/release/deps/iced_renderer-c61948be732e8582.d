@@ -1,0 +1,11 @@
+/Users/nk/Desktop/renshu/miniplot/miniplot/chart_viewer/target/release/deps/libiced_renderer-c61948be732e8582.rmeta: /Users/nk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/iced_renderer-0.12.1/src/lib.rs /Users/nk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/iced_renderer-0.12.1/src/compositor.rs /Users/nk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/iced_renderer-0.12.1/src/geometry.rs /Users/nk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/iced_renderer-0.12.1/src/geometry/cache.rs /Users/nk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/iced_renderer-0.12.1/src/settings.rs
+
+/Users/nk/Desktop/renshu/miniplot/miniplot/chart_viewer/target/release/deps/libiced_renderer-c61948be732e8582.rlib: /Users/nk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/iced_renderer-0.12.1/src/lib.rs /Users/nk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/iced_renderer-0.12.1/src/compositor.rs /Users/nk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/iced_renderer-0.12.1/src/geometry.rs /Users/nk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/iced_renderer-0.12.1/src/geometry/cache.rs /Users/nk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/iced_renderer-0.12.1/src/settings.rs
+
+/Users/nk/Desktop/renshu/miniplot/miniplot/chart_viewer/target/release/deps/iced_renderer-c61948be732e8582.d: /Users/nk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/iced_renderer-0.12.1/src/lib.rs /Users/nk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/iced_renderer-0.12.1/src/compositor.rs /Users/nk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/iced_renderer-0.12.1/src/geometry.rs /Users/nk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/iced_renderer-0.12.1/src/geometry/cache.rs /Users/nk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/iced_renderer-0.12.1/src/settings.rs
+
+/Users/nk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/iced_renderer-0.12.1/src/lib.rs:
+/Users/nk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/iced_renderer-0.12.1/src/compositor.rs:
+/Users/nk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/iced_renderer-0.12.1/src/geometry.rs:
+/Users/nk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/iced_renderer-0.12.1/src/geometry/cache.rs:
+/Users/nk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/iced_renderer-0.12.1/src/settings.rs:

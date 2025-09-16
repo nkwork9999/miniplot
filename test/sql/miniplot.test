@@ -1,0 +1,23 @@
+# name: test/sql/miniplot.test
+# description: test miniplot extension
+# group: [sql]
+
+# Before we load the extension, this will fail
+statement error
+SELECT miniplot('Sam');
+----
+Catalog Error: Scalar Function with name miniplot does not exist!
+
+# Require statement will ensure this test is run with this extension loaded
+require miniplot
+
+# Confirm the extension works
+query I
+SELECT miniplot('Sam');
+----
+Miniplot Sam 🐥
+
+query I
+SELECT miniplot_openssl_version('Michael') ILIKE 'Miniplot Michael, my linked OpenSSL version is OpenSSL%';
+----
+true

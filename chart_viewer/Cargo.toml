@@ -1,0 +1,11 @@
+[package]
+name = "chart_viewer"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "chart_viewer"
+path = "src/main.rs"
+
+[dependencies]
+iced = { version = "0.12", features = ["canvas"] }
