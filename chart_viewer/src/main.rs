@@ -18,10 +18,6 @@ struct ChartData {
 fn main() -> iced::Result {
     let args: Vec<String> = env::args().collect();
     
-    // コマンドライン引数から読み取り
-    // args[0]: プログラム名
-    // args[1]: データファイルパス
-    // args[2]: チャートタイプ（オプション）
     let data = if args.len() > 1 {
         let chart_type = if args.len() > 2 {
             args[2].clone()
@@ -131,6 +127,32 @@ impl Application for ChartApp {
     }
 }
 
+// Y軸の適切な最大値を計算する関数
+fn calculate_nice_max(max_value: f64) -> f64 {
+    if max_value <= 0.0 {
+        return 100.0;
+    }
+    
+    // 10の累乗で正規化
+    let magnitude = 10_f64.powf(max_value.log10().floor());
+    let normalized = max_value / magnitude;
+    
+    // 見やすい値に丸める
+    let nice_normalized = if normalized <= 1.0 {
+        1.0
+    } else if normalized <= 2.0 {
+        2.0
+    } else if normalized <= 2.5 {
+        2.5
+    } else if normalized <= 5.0 {
+        5.0
+    } else {
+        10.0
+    };
+    
+    nice_normalized * magnitude * 1.1  // 10%の余白を追加
+}
+
 impl<Message> canvas::Program<Message> for ChartApp {
     type State = ();
 
@@ -168,26 +190,38 @@ impl<Message> canvas::Program<Message> for ChartApp {
             return vec![frame.into_geometry()];
         }
         
+        // Y軸の適切な最大値を計算
+        let y_axis_max = calculate_nice_max(max_value);
+        
         // チャートタイプに応じて描画
         match self.data.chart_type.as_str() {
             "line" => {
-                self.draw_line_chart(&mut frame, bounds, padding, chart_width, chart_height, max_value);
+                self.draw_line_chart(&mut frame, bounds, padding, chart_width, chart_height, y_axis_max);
             },
             "scatter" => {
-                self.draw_scatter_chart(&mut frame, bounds, padding, chart_width, chart_height, max_value);
+                self.draw_scatter_chart(&mut frame, bounds, padding, chart_width, chart_height, y_axis_max);
             },
             "area" => {
-                self.draw_area_chart(&mut frame, bounds, padding, chart_width, chart_height, max_value);
+                self.draw_area_chart(&mut frame, bounds, padding, chart_width, chart_height, y_axis_max);
             },
             "histogram" => {
-                self.draw_histogram(&mut frame, bounds, padding, chart_width, chart_height, max_value);
+                self.draw_histogram(&mut frame, bounds, padding, chart_width, chart_height, y_axis_max);
             },
             _ => {
-                self.draw_bar_chart(&mut frame, bounds, padding, chart_width, chart_height, max_value);
+                self.draw_bar_chart(&mut frame, bounds, padding, chart_width, chart_height, y_axis_max);
             }
         }
         
-        // 軸を描画
+        // 軸を描画（最後に描画して上に表示）
+        self.draw_axes(&mut frame, bounds, padding, y_axis_max);
+        
+        vec![frame.into_geometry()]
+    }
+}
+
+impl ChartApp {
+    fn draw_axes(&self, frame: &mut Frame, bounds: Rectangle, padding: f32, y_max: f64) {
+        // 軸の線を描画
         let axes = Path::new(|p| {
             p.move_to(Point::new(padding, padding));
             p.line_to(Point::new(padding, bounds.height - padding));
@@ -196,18 +230,84 @@ impl<Message> canvas::Program<Message> for ChartApp {
         
         frame.stroke(&axes, Stroke::default().with_width(2.0));
         
-        vec![frame.into_geometry()]
+        // Y軸の目盛りとラベルを描画
+        let y_ticks = 5;
+        for i in 0..=y_ticks {
+            let value = (y_max / y_ticks as f64) * i as f64;
+            let y = bounds.height - padding - (i as f32 / y_ticks as f32) * (bounds.height - padding * 2.0);
+            
+            // 目盛り線
+            let tick_path = Path::new(|p| {
+                p.move_to(Point::new(padding - 5.0, y));
+                p.line_to(Point::new(padding, y));
+            });
+            frame.stroke(&tick_path, Stroke::default().with_width(1.0));
+            
+            // グリッド線（薄い）
+            if i > 0 && i < y_ticks {
+                let grid_path = Path::new(|p| {
+                    p.move_to(Point::new(padding, y));
+                    p.line_to(Point::new(bounds.width - padding, y));
+                });
+                frame.stroke(&grid_path, Stroke::default().with_width(0.5).with_color(Color::from_rgba(0.5, 0.5, 0.5, 0.3)));
+            }
+            
+            // ラベル
+            frame.fill_text(iced::widget::canvas::Text {
+                content: format!("{:.0}", value),
+                position: Point::new(padding - 10.0, y),
+                color: Color::BLACK,
+                size: Pixels(10.0),
+                font: iced::Font::default(),
+                horizontal_alignment: iced::alignment::Horizontal::Right,
+                vertical_alignment: iced::alignment::Vertical::Center,
+                line_height: iced::widget::text::LineHeight::default(),
+                shaping: iced::widget::text::Shaping::default(),
+            });
+        }
     }
-}
-
-impl ChartApp {
+    
+    fn calculate_label_positions(&self, points: &[(f32, f32)]) -> Vec<f32> {
+        let mut label_positions: Vec<f32> = Vec::new();
+        let min_spacing: f32 = 25.0;
+        
+        for (i, &(x, y)) in points.iter().enumerate() {
+            let mut label_y: f32 = y - 10.0;
+            
+            // Y軸に近い場合の調整（最初のポイント）
+            if x < 100.0 {
+                label_y = label_y.min(y - 20.0);  // より上に配置
+            }
+            
+            // 前のラベルとの重なりをチェック
+            for j in 0..i {
+                if (points[i].0 - points[j].0).abs() < 100.0 {  // X座標が近い場合
+                    let prev_label_y: f32 = label_positions[j];
+                    let diff: f32 = label_y - prev_label_y;
+                    if diff.abs() < min_spacing {
+                        // 重なりを避けるため位置調整
+                        if label_y > prev_label_y {
+                            label_y = prev_label_y + min_spacing;
+                        } else {
+                            label_y = prev_label_y - min_spacing;
+                        }
+                    }
+                }
+            }
+            
+            label_positions.push(label_y);
+        }
+        
+        label_positions
+    }
+    
     fn draw_bar_chart(&self, frame: &mut Frame, bounds: Rectangle, padding: f32, chart_width: f32, chart_height: f32, max_value: f64) {
         let bar_width = chart_width / (self.data.x_data.len() as f32 * 1.5);
         let data_len = self.data.x_data.len().min(self.data.y_data.len());
         
         for i in 0..data_len {
-            let x = padding + (i as f32 * bar_width * 1.5);
-            let height = (self.data.y_data[i] / max_value) * (chart_height as f64) * 0.8;
+            let x = padding + (i as f32 * bar_width * 1.5) + bar_width * 0.25;
+            let height = (self.data.y_data[i] / max_value) * chart_height as f64;
             let y = bounds.height - padding - height as f32;
             
             frame.fill_rectangle(
@@ -217,7 +317,7 @@ impl ChartApp {
             );
             
             self.draw_x_label(frame, &self.data.x_data[i], x + bar_width / 2.0, bounds.height - padding + 20.0);
-            self.draw_value_label(frame, self.data.y_data[i], x + bar_width / 2.0, y - 5.0);
+            self.draw_value_label_smart(frame, self.data.y_data[i], x + bar_width / 2.0, y);
         }
     }
     
@@ -227,11 +327,20 @@ impl ChartApp {
         
         let x_step = chart_width / ((data_len - 1).max(1) as f32);
         
+        // 各点の座標を計算
+        let mut points = Vec::new();
+        for i in 0..data_len {
+            let x = padding + (i as f32 * x_step);
+            let y = bounds.height - padding - ((self.data.y_data[i] / max_value) * chart_height as f64) as f32;
+            points.push((x, y));
+        }
+        
+        // ラベル位置を計算
+        let label_positions = self.calculate_label_positions(&points);
+        
+        // 線を描画
         let path = Path::new(|p| {
-            for i in 0..data_len {
-                let x = padding + (i as f32 * x_step);
-                let y = bounds.height - padding - ((self.data.y_data[i] / max_value) * (chart_height as f64) * 0.8) as f32;
-                
+            for (i, &(x, y)) in points.iter().enumerate() {
                 if i == 0 {
                     p.move_to(Point::new(x, y));
                 } else {
@@ -242,21 +351,31 @@ impl ChartApp {
         
         frame.stroke(&path, Stroke::default().with_width(2.0).with_color(Color::from_rgb(0.2, 0.6, 0.9)));
         
-        for i in 0..data_len {
-            let x = padding + (i as f32 * x_step);
-            let y = bounds.height - padding - ((self.data.y_data[i] / max_value) * (chart_height as f64) * 0.8) as f32;
-            
+        // 点とラベルを描画
+        for (i, &(x, y)) in points.iter().enumerate() {
             frame.fill(&Path::circle(Point::new(x, y), 4.0), Color::from_rgb(0.2, 0.6, 0.9));
-            
             self.draw_x_label(frame, &self.data.x_data[i], x, bounds.height - padding + 20.0);
-            self.draw_value_label(frame, self.data.y_data[i], x, y - 10.0);
+            
+            // 引き出し線付きラベル
+            let label_y = label_positions[i];
+            if (label_y - (y - 10.0)).abs() > 5.0 {
+                // 引き出し線を描画
+                let leader = Path::new(|p| {
+                    p.move_to(Point::new(x, y - 5.0));
+                    p.line_to(Point::new(x, label_y + 7.0));
+                });
+                frame.stroke(&leader, Stroke::default()
+                    .with_width(0.5)
+                    .with_color(Color::from_rgba(0.5, 0.5, 0.5, 0.5)));
+            }
+            
+            self.draw_value_label_at(frame, self.data.y_data[i], x, label_y);
         }
     }
     
     fn draw_scatter_chart(&self, frame: &mut Frame, bounds: Rectangle, padding: f32, chart_width: f32, chart_height: f32, max_value: f64) {
         let data_len = self.data.x_data.len().min(self.data.y_data.len());
         
-        // X軸データが数値の場合の処理
         let x_numeric: Vec<f64> = self.data.x_data.iter()
             .filter_map(|s| s.parse().ok())
             .collect();
@@ -268,19 +387,42 @@ impl ChartApp {
             data_len as f64
         };
         
+        // 各点の座標を計算
+        let mut points = Vec::new();
         for i in 0..data_len {
             let x = if use_numeric_x {
                 padding + (x_numeric[i] / max_x) as f32 * chart_width
             } else {
                 padding + (i as f32 / (data_len - 1).max(1) as f32) * chart_width
             };
-            let y = bounds.height - padding - ((self.data.y_data[i] / max_value) * (chart_height as f64) * 0.8) as f32;
-            
+            let y = bounds.height - padding - ((self.data.y_data[i] / max_value) * chart_height as f64) as f32;
+            points.push((x, y));
+        }
+        
+        // ラベル位置を計算
+        let label_positions = self.calculate_label_positions(&points);
+        
+        // 点とラベルを描画
+        for (i, &(x, y)) in points.iter().enumerate() {
             frame.fill(&Path::circle(Point::new(x, y), 5.0), Color::from_rgb(0.2, 0.6, 0.9));
             
             if i % ((data_len / 5).max(1)) == 0 || data_len <= 5 {
                 self.draw_x_label(frame, &self.data.x_data[i], x, bounds.height - padding + 20.0);
             }
+            
+            // 引き出し線付きラベル
+            let label_y = label_positions[i];
+            if (label_y - (y - 10.0)).abs() > 5.0 {
+                let leader = Path::new(|p| {
+                    p.move_to(Point::new(x, y - 5.0));
+                    p.line_to(Point::new(x, label_y + 7.0));
+                });
+                frame.stroke(&leader, Stroke::default()
+                    .with_width(0.5)
+                    .with_color(Color::from_rgba(0.5, 0.5, 0.5, 0.5)));
+            }
+            
+            self.draw_value_label_at(frame, self.data.y_data[i], x, label_y);
         }
     }
     
@@ -290,24 +432,60 @@ impl ChartApp {
         
         let x_step = chart_width / ((data_len - 1).max(1) as f32);
         
+        // 各点の座標を計算
+        let mut points = Vec::new();
+        for i in 0..data_len {
+            let x = padding + (i as f32 * x_step);
+            let y = bounds.height - padding - ((self.data.y_data[i] / max_value) * chart_height as f64) as f32;
+            points.push((x, y));
+        }
+        
+        // ラベル位置を計算
+        let label_positions = self.calculate_label_positions(&points);
+        
+        // エリアを描画
         let path = Path::new(|p| {
             p.move_to(Point::new(padding, bounds.height - padding));
-            
-            for i in 0..data_len {
-                let x = padding + (i as f32 * x_step);
-                let y = bounds.height - padding - ((self.data.y_data[i] / max_value) * (chart_height as f64) * 0.8) as f32;
+            for &(x, y) in &points {
                 p.line_to(Point::new(x, y));
             }
-            
             p.line_to(Point::new(padding + ((data_len - 1) as f32 * x_step), bounds.height - padding));
             p.close();
         });
         
         frame.fill(&path, Color::from_rgba(0.2, 0.6, 0.9, 0.3));
         
-        for i in 0..data_len {
-            let x = padding + (i as f32 * x_step);
+        // 輪郭線を追加
+        let outline_path = Path::new(|p| {
+            for (i, &(x, y)) in points.iter().enumerate() {
+                if i == 0 {
+                    p.move_to(Point::new(x, y));
+                } else {
+                    p.line_to(Point::new(x, y));
+                }
+            }
+        });
+        
+        frame.stroke(&outline_path, Stroke::default().with_width(2.0).with_color(Color::from_rgb(0.2, 0.6, 0.9)));
+        
+        // 点とラベルを描画
+        for (i, &(x, y)) in points.iter().enumerate() {
+            frame.fill(&Path::circle(Point::new(x, y), 4.0), Color::from_rgb(0.2, 0.6, 0.9));
             self.draw_x_label(frame, &self.data.x_data[i], x, bounds.height - padding + 20.0);
+            
+            // 引き出し線付きラベル
+            let label_y = label_positions[i];
+            if (label_y - (y - 10.0)).abs() > 5.0 {
+                let leader = Path::new(|p| {
+                    p.move_to(Point::new(x, y - 5.0));
+                    p.line_to(Point::new(x, label_y + 7.0));
+                });
+                frame.stroke(&leader, Stroke::default()
+                    .with_width(0.5)
+                    .with_color(Color::from_rgba(0.5, 0.5, 0.5, 0.5)));
+            }
+            
+            self.draw_value_label_at(frame, self.data.y_data[i], x, label_y);
         }
     }
     
@@ -316,7 +494,7 @@ impl ChartApp {
         
         for i in 0..self.data.y_data.len() {
             let x = padding + (i as f32 * bar_width);
-            let height = (self.data.y_data[i] / max_value) * (chart_height as f64) * 0.8;
+            let height = (self.data.y_data[i] / max_value) * chart_height as f64;
             let y = bounds.height - padding - height as f32;
             
             frame.fill_rectangle(
@@ -341,10 +519,45 @@ impl ChartApp {
         });
     }
     
-    fn draw_value_label(&self, frame: &mut Frame, value: f64, x: f32, y: f32) {
+    fn draw_value_label_smart(&self, frame: &mut Frame, value: f64, x: f32, y: f32) {
+        let adjusted_y = (y - 15.0).max(80.0);
+        self.draw_value_label_at(frame, value, x, adjusted_y);
+    }
+    
+    fn draw_value_label_at(&self, frame: &mut Frame, value: f64, x: f32, y: f32) {
+        // X座標が左端に近い場合、右にオフセット
+        let adjusted_x = if x < 90.0 {
+            x + 30.0  // Y軸から離す
+        } else {
+            x
+        };
+        
+        let text_content = format!("{:.0}", value);
+        let text_width = text_content.len() as f32 * 6.0 + 8.0;
+        let text_height = 14.0;
+        
+        // 白い背景ボックス
+        frame.fill_rectangle(
+            Point::new(adjusted_x - text_width / 2.0, y - text_height),
+            Size::new(text_width, text_height),
+            Color::from_rgba(1.0, 1.0, 1.0, 0.95),
+        );
+        
+        // 薄い境界線を追加
+        frame.stroke(
+            &Path::rectangle(
+                Point::new(adjusted_x - text_width / 2.0, y - text_height),
+                Size::new(text_width, text_height)
+            ),
+            Stroke::default()
+                .with_width(0.5)
+                .with_color(Color::from_rgba(0.8, 0.8, 0.8, 0.5))
+        );
+        
+        // テキスト描画
         frame.fill_text(iced::widget::canvas::Text {
-            content: format!("{:.1}", value),
-            position: Point::new(x, y),
+            content: text_content,
+            position: Point::new(adjusted_x, y),
             color: Color::BLACK,
             size: Pixels(10.0),
             font: iced::Font::default(),
