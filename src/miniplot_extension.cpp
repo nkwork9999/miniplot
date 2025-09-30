@@ -428,9 +428,9 @@ DUCKDB_EXTENSION_API void miniplot_duckdb_cpp_init(duckdb::ExtensionLoader &load
 }
 
 // 古い形式のロード（例: `LOAD` SQLコマンド）に対応するためのエントリーポイント
-DUCKDB_EXTENSION_API void miniplot_init(duckdb::DatabaseInstance &db) {
-	duckdb::LoadInternal(db);
-}
+// DUCKDB_EXTENSION_API void miniplot_init(duckdb::DatabaseInstance &db) {
+// 	duckdb::LoadInternal(db);
+// }
 
 // バージョン情報を返す関数
 DUCKDB_EXTENSION_API const char *miniplot_version() {
