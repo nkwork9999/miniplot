@@ -4,9 +4,12 @@
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/function/scalar_function.hpp"
-#include "duckdb/main/extension_util.hpp"
-#include <duckdb/parser/parsed_data/create_scalar_function_info.hpp>
-#include <duckdb/common/vector_operations/vector_operations.hpp>
+#include "duckdb/main/extension_entries.hpp"
+#include "duckdb/parser/parsed_data/create_scalar_function_info.hpp"
+#include "duckdb/common/vector_operations/vector_operations.hpp"
+#include "duckdb/main/connection.hpp"
+#include "duckdb/catalog/catalog.hpp"
+
 #include <fstream>
 
 #ifdef _WIN32
@@ -17,7 +20,7 @@
 
 namespace duckdb {
 
-// Rust関数の型定義（使用する関数のみ）
+// Rust関数の型定義
 typedef void (*rust_hello_init_fn)();
 typedef const char* (*rust_show_dynamic_chart_fn)(const char*);
 typedef const char* (*rust_show_line_chart_fn)(const char*);
@@ -55,10 +58,8 @@ inline void BarChartFunction(DataChunk &args, ExpressionState &state, Vector &re
     string data_path = "/tmp/miniplot_data.txt";
     std::ofstream file(data_path);
     
-    // タイトル
     file << title.GetValue(0).ToString() << "\n";
     
-    // X軸データ
     auto x_val = x_list.GetValue(0);
     if (!x_val.IsNull() && x_val.type().id() == LogicalTypeId::LIST) {
         auto &x_children = ListValue::GetChildren(x_val);
@@ -69,7 +70,6 @@ inline void BarChartFunction(DataChunk &args, ExpressionState &state, Vector &re
     }
     file << "\n";
     
-    // Y軸データ
     auto y_val = y_list.GetValue(0);
     if (!y_val.IsNull() && y_val.type().id() == LogicalTypeId::LIST) {
         auto &y_children = ListValue::GetChildren(y_val);
@@ -189,7 +189,6 @@ inline void HistogramFunction(DataChunk &args, ExpressionState &state, Vector &r
     
     file << title.GetValue(0).ToString() << "\n";
     
-    // データ値
     auto data_val = data_list.GetValue(0);
     if (!data_val.IsNull() && data_val.type().id() == LogicalTypeId::LIST) {
         auto &data_children = ListValue::GetChildren(data_val);
@@ -200,7 +199,6 @@ inline void HistogramFunction(DataChunk &args, ExpressionState &state, Vector &r
     }
     file << "\n";
     
-    // ビン数
     file << bins.GetValue(0).ToString() << "\n";
     file.close();
     
@@ -308,78 +306,66 @@ static void LoadRustLibrary(DatabaseInstance &instance) {
     }
 }
 
-static void LoadInternal(DatabaseInstance &instance) {
-    // Rustライブラリのロード（オプショナル）
-    LoadRustLibrary(instance);
+// LoadInternal (ExtensionLoader版)
+static void LoadInternal(ExtensionLoader &loader) {
+    LoadRustLibrary(loader.GetDatabaseInstance());
     
-    // テスト関数
     auto miniplot_test = ScalarFunction("miniplot", {LogicalType::VARCHAR}, LogicalType::VARCHAR, MiniplotTestFunction);
-    ExtensionUtil::RegisterFunction(instance, miniplot_test);
+    loader.RegisterFunction(miniplot_test);
     
-    // バーチャート
-    auto bar_chart = ScalarFunction(
-        "bar_chart",
-        {LogicalType::LIST(LogicalType::VARCHAR), 
-         LogicalType::LIST(LogicalType::DOUBLE), 
-         LogicalType::VARCHAR},
-        LogicalType::VARCHAR,
-        BarChartFunction
-    );
-    ExtensionUtil::RegisterFunction(instance, bar_chart);
+    auto bar_chart = ScalarFunction("bar_chart", {LogicalType::LIST(LogicalType::VARCHAR), LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR}, LogicalType::VARCHAR, BarChartFunction);
+    loader.RegisterFunction(bar_chart);
     
-    // 折れ線グラフ
-    auto line_chart = ScalarFunction(
-        "line_chart",
-        {LogicalType::LIST(LogicalType::VARCHAR), 
-         LogicalType::LIST(LogicalType::DOUBLE), 
-         LogicalType::VARCHAR},
-        LogicalType::VARCHAR,
-        LineChartFunction
-    );
-    ExtensionUtil::RegisterFunction(instance, line_chart);
+    auto line_chart = ScalarFunction("line_chart", {LogicalType::LIST(LogicalType::VARCHAR), LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR}, LogicalType::VARCHAR, LineChartFunction);
+    loader.RegisterFunction(line_chart);
     
-    // 散布図
-    auto scatter_chart = ScalarFunction(
-        "scatter_chart",
-        {LogicalType::LIST(LogicalType::DOUBLE), 
-         LogicalType::LIST(LogicalType::DOUBLE), 
-         LogicalType::VARCHAR},
-        LogicalType::VARCHAR,
-        ScatterChartFunction
-    );
-    ExtensionUtil::RegisterFunction(instance, scatter_chart);
+    auto scatter_chart = ScalarFunction("scatter_chart", {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR}, LogicalType::VARCHAR, ScatterChartFunction);
+    loader.RegisterFunction(scatter_chart);
     
-    // ヒストグラム
-    auto histogram = ScalarFunction(
-        "histogram_chart",
-        {LogicalType::LIST(LogicalType::DOUBLE), 
-         LogicalType::INTEGER,
-         LogicalType::VARCHAR},
-        LogicalType::VARCHAR,
-        HistogramFunction
-    );
-    ExtensionUtil::RegisterFunction(instance, histogram);
+    auto histogram = ScalarFunction("histogram_chart", {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::INTEGER, LogicalType::VARCHAR}, LogicalType::VARCHAR, HistogramFunction);
+    loader.RegisterFunction(histogram);
     
-    // エリアチャート
-    auto area_chart = ScalarFunction(
-        "area_chart",
-        {LogicalType::LIST(LogicalType::VARCHAR), 
-         LogicalType::LIST(LogicalType::DOUBLE), 
-         LogicalType::VARCHAR},
-        LogicalType::VARCHAR,
-        AreaChartFunction
-    );
-    ExtensionUtil::RegisterFunction(instance, area_chart);
+    auto area_chart = ScalarFunction("area_chart", {LogicalType::LIST(LogicalType::VARCHAR), LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR}, LogicalType::VARCHAR, AreaChartFunction);
+    loader.RegisterFunction(area_chart);
 }
 
-void MiniplotExtension::Load(DuckDB &db) {
-    LoadInternal(*db.instance);
+// LoadInternal (DatabaseInstance版)
+static void LoadInternal(DatabaseInstance &instance) {
+    LoadRustLibrary(instance);
+
+    Connection con(instance);
+    auto &context = *con.context;
+    auto &catalog = Catalog::GetSystemCatalog(instance);
+
+    auto miniplot_test = ScalarFunction("miniplot", {LogicalType::VARCHAR}, LogicalType::VARCHAR, MiniplotTestFunction);
+    CreateScalarFunctionInfo test_info(miniplot_test);
+    catalog.CreateFunction(context, test_info);
+
+    auto bar_chart = ScalarFunction("bar_chart", {LogicalType::LIST(LogicalType::VARCHAR), LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR}, LogicalType::VARCHAR, BarChartFunction);
+    CreateScalarFunctionInfo bar_info(bar_chart);
+    catalog.CreateFunction(context, bar_info);
+
+    auto line_chart = ScalarFunction("line_chart", {LogicalType::LIST(LogicalType::VARCHAR), LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR}, LogicalType::VARCHAR, LineChartFunction);
+    CreateScalarFunctionInfo line_info(line_chart);
+    catalog.CreateFunction(context, line_info);
+
+    auto scatter_chart = ScalarFunction("scatter_chart", {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR}, LogicalType::VARCHAR, ScatterChartFunction);
+    CreateScalarFunctionInfo scatter_info(scatter_chart);
+    catalog.CreateFunction(context, scatter_info);
+
+    auto histogram = ScalarFunction("histogram_chart", {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::INTEGER, LogicalType::VARCHAR}, LogicalType::VARCHAR, HistogramFunction);
+    CreateScalarFunctionInfo hist_info(histogram);
+    catalog.CreateFunction(context, hist_info);
+
+    auto area_chart = ScalarFunction("area_chart", {LogicalType::LIST(LogicalType::VARCHAR), LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR}, LogicalType::VARCHAR, AreaChartFunction);
+    CreateScalarFunctionInfo area_info(area_chart);
+    catalog.CreateFunction(context, area_info);
 }
 
-std::string MiniplotExtension::Name() {
-    return "miniplot";
+void MiniplotExtension::Load(ExtensionLoader &loader) {
+    LoadInternal(loader);
 }
-
+std::string MiniplotExtension::Name() { return "miniplot"; }
 std::string MiniplotExtension::Version() const {
 #ifdef EXT_VERSION_MINIPLOT
     return EXT_VERSION_MINIPLOT;
@@ -392,17 +378,19 @@ std::string MiniplotExtension::Version() const {
 
 extern "C" {
 
-DUCKDB_EXTENSION_API void miniplot_init(duckdb::DatabaseInstance &db) {
-    duckdb::DuckDB db_wrapper(db);
-    db_wrapper.LoadExtension<duckdb::MiniplotExtension>();
+// DuckDBのビルドシステムが要求する新しいエントリーポイント
+DUCKDB_EXTENSION_API void miniplot_duckdb_cpp_init(duckdb::ExtensionLoader &loader) {
+    duckdb::LoadInternal(loader);
 }
 
+// 古い形式のロード（例: `LOAD` SQLコマンド）に対応するためのエントリーポイント
+DUCKDB_EXTENSION_API void miniplot_init(duckdb::DatabaseInstance &db) {
+    duckdb::LoadInternal(db);
+}
+
+// バージョン情報を返す関数
 DUCKDB_EXTENSION_API const char *miniplot_version() {
     return duckdb::DuckDB::LibraryVersion();
 }
 
 }
-
-#ifndef DUCKDB_EXTENSION_MAIN
-#error DUCKDB_EXTENSION_MAIN not defined
-#endif
