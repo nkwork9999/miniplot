@@ -425,15 +425,15 @@ std::string MiniplotExtension::Version() const {
 
 } // namespace duckdb
 
-extern "C" {
+// extern "C" {
 
 // DuckDBのビルドシステムが要求する新しいエントリーポイント
 // DUCKDB_EXTENSION_API void miniplot_duckdb_cpp_init(duckdb::ExtensionLoader &loader) {
 // 	duckdb::LoadInternal(loader);
 // }
-DUCKDB_EXTENSION_API void miniplot_init(duckdb::DatabaseInstance &db) {
-	duckdb::LoadInternal(db);
-}
+// DUCKDB_EXTENSION_API void miniplot_init(duckdb::DatabaseInstance &db) {
+// 	duckdb::LoadInternal(db);
+// }
 
 // 古い形式のロード（例: `LOAD` SQLコマンド）に対応するためのエントリーポイント
 // DUCKDB_EXTENSION_API void miniplot_init(duckdb::DatabaseInstance &db) {
@@ -441,7 +441,25 @@ DUCKDB_EXTENSION_API void miniplot_init(duckdb::DatabaseInstance &db) {
 // }
 
 // バージョン情報を返す関数
+// DUCKDB_EXTENSION_API const char *miniplot_version() {
+// 	return duckdb::DuckDB::LibraryVersion();
+// }
+// }
+extern "C" {
+
+// DuckDB 1.4.0のloadable extensionに必要なエントリポイント
+DUCKDB_EXTENSION_API void miniplot_duckdb_cpp_init(duckdb::ExtensionLoader &loader) {
+	duckdb::LoadInternal(loader);
+}
+
+// 古い形式のエントリポイント（LOAD SQLコマンド用）
+DUCKDB_EXTENSION_API void miniplot_init(duckdb::DatabaseInstance &db) {
+	duckdb::LoadInternal(db);
+}
+
+// バージョン情報を返す関数
 DUCKDB_EXTENSION_API const char *miniplot_version() {
 	return duckdb::DuckDB::LibraryVersion();
 }
+
 }

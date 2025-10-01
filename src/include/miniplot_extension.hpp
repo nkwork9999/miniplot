@@ -21,7 +21,7 @@ namespace duckdb {
 
 class MiniplotExtension : public Extension {
 public:
-    void Load(DuckDB &db) override;  // ExtensionLoaderではなくDuckDBを受け取る
+    void Load(ExtensionLoader &loader) override;  // これが正解
     std::string Name() override;
     std::string Version() const override;
 };
