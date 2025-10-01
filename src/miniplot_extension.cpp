@@ -407,9 +407,14 @@ static void LoadInternal(DatabaseInstance &instance) {
 void MiniplotExtension::Load(ExtensionLoader &loader) {
 	LoadInternal(loader);
 }
+// void MiniplotExtension::Load(DuckDB &db) {  // ExtensionLoaderではなくDuckDBに変更
+//     LoadInternal(*db.instance);  // DatabaseInstance版のLoadInternalを呼ぶ
+// }
+
 std::string MiniplotExtension::Name() {
 	return "miniplot";
 }
+
 std::string MiniplotExtension::Version() const {
 #ifdef EXT_VERSION_MINIPLOT
 	return EXT_VERSION_MINIPLOT;
@@ -423,8 +428,11 @@ std::string MiniplotExtension::Version() const {
 extern "C" {
 
 // DuckDBのビルドシステムが要求する新しいエントリーポイント
-DUCKDB_EXTENSION_API void miniplot_duckdb_cpp_init(duckdb::ExtensionLoader &loader) {
-	duckdb::LoadInternal(loader);
+// DUCKDB_EXTENSION_API void miniplot_duckdb_cpp_init(duckdb::ExtensionLoader &loader) {
+// 	duckdb::LoadInternal(loader);
+// }
+DUCKDB_EXTENSION_API void miniplot_init(duckdb::DatabaseInstance &db) {
+	duckdb::LoadInternal(db);
 }
 
 // 古い形式のロード（例: `LOAD` SQLコマンド）に対応するためのエントリーポイント
