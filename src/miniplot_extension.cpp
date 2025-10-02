@@ -11,6 +11,7 @@
 #include "duckdb/catalog/catalog.hpp"
 
 #include <fstream>
+#include <openssl/opensslv.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -46,6 +47,16 @@ inline void MiniplotTestFunction(DataChunk &args, ExpressionState &state, Vector
 	auto &name_vector = args.data[0];
 	UnaryExecutor::Execute<string_t, string_t>(name_vector, result, args.size(), [&](string_t name) {
 		return StringVector::AddString(result, "Miniplot " + name.GetString() + " 🐥"); 
+	});
+}
+
+// OpenSSL version function
+inline void MiniplotOpenSSLVersionFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	auto &name_vector = args.data[0];
+	UnaryExecutor::Execute<string_t, string_t>(name_vector, result, args.size(), [&](string_t name) {
+		string version_info = "Miniplot " + name.GetString() + ", my linked OpenSSL version is " + 
+		                      string(OPENSSL_VERSION_TEXT);
+		return StringVector::AddString(result, version_info);
 	});
 }
 
@@ -327,6 +338,10 @@ static void LoadInternal(ExtensionLoader &loader) {
 	auto miniplot_test = ScalarFunction("miniplot", {LogicalType::VARCHAR}, LogicalType::VARCHAR, MiniplotTestFunction);
 	loader.RegisterFunction(miniplot_test);
 
+	auto openssl_version = ScalarFunction("miniplot_openssl_version", {LogicalType::VARCHAR}, 
+	                                      LogicalType::VARCHAR, MiniplotOpenSSLVersionFunction);
+	loader.RegisterFunction(openssl_version);
+
 	auto bar_chart = ScalarFunction(
 	    "bar_chart",
 	    {LogicalType::LIST(LogicalType::VARCHAR), LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR},
@@ -369,6 +384,11 @@ static void LoadInternal(DatabaseInstance &instance) {
 	CreateScalarFunctionInfo test_info(miniplot_test);
 	catalog.CreateFunction(context, test_info);
 
+	auto openssl_version = ScalarFunction("miniplot_openssl_version", {LogicalType::VARCHAR}, 
+	                                      LogicalType::VARCHAR, MiniplotOpenSSLVersionFunction);
+	CreateScalarFunctionInfo openssl_info(openssl_version);
+	catalog.CreateFunction(context, openssl_info);
+
 	auto bar_chart = ScalarFunction(
 	    "bar_chart",
 	    {LogicalType::LIST(LogicalType::VARCHAR), LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR},
@@ -407,9 +427,6 @@ static void LoadInternal(DatabaseInstance &instance) {
 void MiniplotExtension::Load(ExtensionLoader &loader) {
 	LoadInternal(loader);
 }
-// void MiniplotExtension::Load(DuckDB &db) {  // ExtensionLoaderではなくDuckDBに変更
-//     LoadInternal(*db.instance);  // DatabaseInstance版のLoadInternalを呼ぶ
-// }
 
 std::string MiniplotExtension::Name() {
 	return "miniplot";
@@ -425,39 +442,16 @@ std::string MiniplotExtension::Version() const {
 
 } // namespace duckdb
 
-// extern "C" {
-
-// DuckDBのビルドシステムが要求する新しいエントリーポイント
-// DUCKDB_EXTENSION_API void miniplot_duckdb_cpp_init(duckdb::ExtensionLoader &loader) {
-// 	duckdb::LoadInternal(loader);
-// }
-// DUCKDB_EXTENSION_API void miniplot_init(duckdb::DatabaseInstance &db) {
-// 	duckdb::LoadInternal(db);
-// }
-
-// 古い形式のロード（例: `LOAD` SQLコマンド）に対応するためのエントリーポイント
-// DUCKDB_EXTENSION_API void miniplot_init(duckdb::DatabaseInstance &db) {
-// 	duckdb::LoadInternal(db);
-// }
-
-// バージョン情報を返す関数
-// DUCKDB_EXTENSION_API const char *miniplot_version() {
-// 	return duckdb::DuckDB::LibraryVersion();
-// }
-// }
 extern "C" {
 
-// DuckDB 1.4.0のloadable extensionに必要なエントリポイント
 DUCKDB_EXTENSION_API void miniplot_duckdb_cpp_init(duckdb::ExtensionLoader &loader) {
 	duckdb::LoadInternal(loader);
 }
 
-// 古い形式のエントリポイント（LOAD SQLコマンド用）
 DUCKDB_EXTENSION_API void miniplot_init(duckdb::DatabaseInstance &db) {
 	duckdb::LoadInternal(db);
 }
 
-// バージョン情報を返す関数
 DUCKDB_EXTENSION_API const char *miniplot_version() {
 	return duckdb::DuckDB::LibraryVersion();
 }
