@@ -148,7 +148,60 @@ export CHART_VIEWER_PATH=/path/to/chart_viewer
 - Requires graphical environment (not suitable for headless servers)
 - Charts open in separate windows
 - External process launch may require security permissions
+Here's a clear explanation in English for a GitHub issue or documentation:
 
+---
+
+## Current Status and Limitations
+
+### Current Implementation Requirements
+
+The miniplot extension currently requires manual setup after installation:
+
+```bash
+# Step 1: Install from community extensions
+INSTALL miniplot FROM community;
+
+# Step 2: Manual setup required (NOT automatic)
+# Users must manually place the chart_viewer binary
+cp chart_viewer /usr/local/bin/
+export CHART_VIEWER_PATH=/usr/local/bin/chart_viewer
+
+# Step 3: Load and use
+LOAD miniplot;
+SELECT bar_chart(
+    LIST_VALUE('Q1', 'Q2', 'Q3', 'Q4'),
+    LIST_VALUE(100, 150, 200, 180),
+    'Quarterly Sales'
+);
+```
+
+### Problem
+
+This approach has significant limitations:
+- **Not suitable for community extension distribution** - Requires external binary (`chart_viewer`) that isn't included in the `.duckdb_extension` file
+- **Manual configuration required** - Users must locate and install the chart_viewer binary separately
+- **Platform-specific binaries needed** - Separate chart_viewer builds for macOS, Linux, and Windows
+
+---
+
+## Proposed Solution: HTML-Based Visualization
+
+We are considering migrating to an **HTML-based approach** to enable proper community extension distribution:
+
+### Benefits
+- ✅ **Single binary distribution** - Everything embedded in one `.duckdb_extension` file
+- ✅ **No external dependencies** - No need for separate chart_viewer binary
+- ✅ **True "install and use"** - Works immediately after `INSTALL miniplot FROM community`
+- ✅ **Cross-platform compatibility** - Uses system browser (always available)
+- ✅ **Standards compliant** - Matches DuckDB community extension requirements
+
+### Implementation Approach
+Replace native Iced GUI with HTML generation using Plotly.js or similar library, opening charts in the user's default browser.
+
+---
+
+**Feedback welcome:** We'd appreciate community input on whether native GUI (current) vs browser-based visualization (proposed) better serves users' needs.
 ## License
 
 MIT License - see [LICENSE](LICENSE) file
