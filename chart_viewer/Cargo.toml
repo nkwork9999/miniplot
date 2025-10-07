@@ -2,10 +2,19 @@
 name = "chart_viewer"
 version = "0.1.0"
 edition = "2021"
+build = "build.rs"  # ← この行を追加
+
+[lib]
+name = "chart_viewer"
+crate-type = ["staticlib", "rlib"]
 
 [[bin]]
-name = "chart_viewer"
+name = "chart_viewer_standalone"
 path = "src/main.rs"
 
 [dependencies]
-iced = { version = "0.12", features = ["canvas"] }
+iced = { version = "0.13", features = ["canvas"] }
+serde_json = "1.0"
+
+[build-dependencies]
+# build.rs用の依存は不要（標準ライブラリのみ使用）
