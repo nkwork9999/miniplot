@@ -10,16 +10,25 @@ No more switching between pandas and matplotlib for data visualization.
 
 #### One tool. One query. Instant visualization.
 
+## ✨ What's New in v0.0.2
+
+- 🔄 **Complete rewrite** using Plotly.js for better compatibility
+- 🌐 **Browser-based rendering** - Charts open in your default browser
+- 📦 **Fully offline** - Plotly.js embedded (3.4MB), no internet required
+- 🎨 **Interactive features** - Zoom, pan, hover tooltips, export to PNG
+- 🚀 **Simpler architecture** - No external binaries or process management
+- ⚡ **Single file** - Just 9.2MB, install and use immediately
+
 ## Features
 
 - 📊 **Multiple chart types**: Bar, Line, Scatter, and Area charts
-- 🖼️ **Native GUI rendering**: Charts open in native windows using Rust/Iced
+- 🖥️ **Browser-based rendering**: Charts open in your default web browser
 - 🚀 **Simple SQL interface**: Visualize data directly from SQL queries
 - 💻 **Cross-platform**: Works on macOS, Linux, and Windows
+- 🔒 **Fully offline**: No internet connection required
+- ✨ **Interactive**: Zoom, pan, hover, and export capabilities
 
 ## Installation
-
-### From Community Extensions (Coming Soon)
 
 ```sql
 INSTALL miniplot FROM community;
@@ -28,11 +37,7 @@ LOAD miniplot;
 
 ````
 
-### From Source
-
-```sql
-LOAD './build/release/extension/miniplot/miniplot.duckdb_extension';
-```
+That's it! No additional setup required.
 
 ## Usage
 
@@ -40,8 +45,8 @@ LOAD './build/release/extension/miniplot/miniplot.duckdb_extension';
 
 ```sql
 SELECT bar_chart(
-    LIST_VALUE('Q1', 'Q2', 'Q3', 'Q4'),
-    LIST_VALUE(100, 150, 200, 180),
+    ['Q1', 'Q2', 'Q3', 'Q4'],
+    [100.0, 150.0, 200.0, 180.0],
     'Quarterly Sales'
 );
 ```
@@ -50,8 +55,8 @@ SELECT bar_chart(
 
 ```sql
 SELECT line_chart(
-    LIST_VALUE('Jan', 'Feb', 'Mar', 'Apr', 'May'),
-    LIST_VALUE(5.2, 7.1, 12.5, 15.8, 20.3),
+    ['Jan', 'Feb', 'Mar', 'Apr', 'May'],
+    [5.2, 7.1, 12.5, 15.8, 20.3],
     'Monthly Temperature'
 );
 ```
@@ -60,8 +65,8 @@ SELECT line_chart(
 
 ```sql
 SELECT scatter_chart(
-    LIST_VALUE(1.0, 2.0, 3.0, 4.0, 5.0),
-    LIST_VALUE(2.5, 5.0, 7.5, 10.0, 12.5),
+    [1.0, 2.0, 3.0, 4.0, 5.0],
+    [2.5, 5.0, 7.5, 10.0, 12.5],
     'Correlation Analysis'
 );
 ```
@@ -70,143 +75,123 @@ SELECT scatter_chart(
 
 ```sql
 SELECT area_chart(
-    LIST_VALUE('Week1', 'Week2', 'Week3', 'Week4'),
-    LIST_VALUE(1000, 1500, 1300, 1800),
+    ['Week1', 'Week2', 'Week3', 'Week4'],
+    [1000.0, 1500.0, 1300.0, 1800.0],
     'Weekly Revenue'
 );
 ```
 
-## Building
+## Real-World Example
 
-### Prerequisites
+```sql
+-- Create sample data
+CREATE TABLE sales AS
+SELECT 'Mon' as day, 100.0 as amount UNION ALL
+SELECT 'Tue', 150.0 UNION ALL
+SELECT 'Wed', 120.0 UNION ALL
+SELECT 'Thu', 180.0 UNION ALL
+SELECT 'Fri', 140.0;
 
-- DuckDB development files
-- Rust toolchain (1.70+)
-- CMake
-- C++11 compiler
-
-### Managing dependencies
-
-DuckDB extensions uses VCPKG for dependency management. Enabling VCPKG is very simple: follow the [installation instructions](https://vcpkg.io/en/getting-started) or just run the following:
-
-```shell
-git clone https://github.com/Microsoft/vcpkg.git
-./vcpkg/bootstrap-vcpkg.sh
-export VCPKG_TOOLCHAIN_PATH=`pwd`/vcpkg/scripts/buildsystems/vcpkg.cmake
+-- Visualize directly from table
+SELECT bar_chart(
+    list(day ORDER BY day),
+    list(amount ORDER BY day),
+    'Weekly Sales Report'
+) FROM sales;
 ```
 
-### Build steps
+## How It Works
 
-```sh
-# Clone with submodules
-git clone --recurse-submodules https://github.com/nkwork9999/miniplot.git
-cd miniplot
-
-# Build Rust components and extension
-./build.sh
-
-# Or manually:
-cd rust_lib && cargo build --release && cd ..
-cd chart_viewer && cargo build --release && cd ..
-make
+```
+SQL Query → Data Extraction → HTML Generation → Browser Opens → Interactive Chart
 ```
 
-The main binaries that will be built are:
+1. **SQL Query** → Execute chart function with your data
+2. **Data Extraction** → Extension processes your data
+3. **HTML Generation** → Creates HTML with embedded Plotly.js
+4. **Browser Opens** → Opens in your default browser
+5. **Interactive Chart** → Zoom, pan, hover, export
 
-- `./build/release/duckdb` - DuckDB shell with the extension loaded
-- `./build/release/test/unittest` - Test runner
-- `./build/release/extension/miniplot/miniplot.duckdb_extension` - Loadable extension
+## Why Miniplot?
 
-## Running the extension
+### vs pandas + matplotlib
 
-To run the extension code, simply start the shell with `./build/release/duckdb`.
+| Feature               | miniplot      | pandas + matplotlib   |
+| --------------------- | ------------- | --------------------- |
+| **Language**          | SQL only      | Python required       |
+| **Setup**             | 1 SQL command | pip install × 2       |
+| **Context Switching** | None          | Query → Python → Plot |
+| **Interactive**       | ✅ Full       | ❌ Static images      |
+| **Data Size**         | Unlimited     | Memory limited        |
 
-## Running the tests
+### vs Jupyter + Plotly
 
-```sh
-make test
-```
+| Feature          | miniplot       | Jupyter + Plotly  |
+| ---------------- | -------------- | ----------------- |
+| **Environment**  | Any SQL client | Browser + Server  |
+| **Deployment**   | Single binary  | Python + packages |
+| **Startup Time** | Instant        | Notebook loading  |
+| **Sharing**      | SQL query      | Notebook file     |
 
 ## Architecture
 
-Miniplot uses a hybrid architecture:
+### Simple and Clean
 
-- **C++ Extension**: DuckDB interface
-- **Rust FFI Library**: Data processing
-- **Iced Application**: Chart rendering
-
-## Configuration
-
-Set custom chart viewer path if needed:
-
-```bash
-export CHART_VIEWER_PATH=/path/to/chart_viewer
+```
+┌─────────────────────────────────┐
+│   DuckDB SQL Query              │
+│   SELECT bar_chart(...)         │
+└────────────┬────────────────────┘
+             ↓
+┌─────────────────────────────────┐
+│   Extension (9.2MB)             │
+│   - C++ interface               │
+│   - Rust HTML generator         │
+│   - Plotly.js embedded          │
+└────────────┬────────────────────┘
+             ↓
+┌─────────────────────────────────┐
+│   Browser Opens                 │
+│   - Interactive chart           │
+│   - No internet needed          │
+└─────────────────────────────────┘
 ```
 
-## Limitations
+**No external dependencies. No configuration. Just install and use.**
 
-- Requires graphical environment (not suitable for headless servers)
-- Charts open in separate windows
-- External process launch may require security permissions
-Here's a clear explanation in English for a GitHub issue or documentation:
+## Supported Chart Types
 
----
+| Function        | X Axis    | Y Axis   | Description       |
+| --------------- | --------- | -------- | ----------------- |
+| `bar_chart`     | VARCHAR[] | DOUBLE[] | Vertical bars     |
+| `line_chart`    | VARCHAR[] | DOUBLE[] | Line with markers |
+| `scatter_chart` | DOUBLE[]  | DOUBLE[] | Scatter points    |
+| `area_chart`    | VARCHAR[] | DOUBLE[] | Filled area       |
 
-## Current Status and Limitations
+## Interactive Features
 
-### Current Implementation Requirements
+All charts include:
 
-The miniplot extension currently requires manual setup after installation:
+- 🔍 **Zoom** - Click and drag to zoom into regions
+- 👆 **Pan** - Shift + drag to pan around
+- 📊 **Hover** - Hover over points to see values
+- 💾 **Export** - Download as PNG image
+- 🔄 **Reset** - Double-click to reset view
 
-```bash
-# Step 1: Install from community extensions
-INSTALL miniplot FROM community;
-
-# Step 2: Manual setup required (NOT automatic)
-# Users must manually place the chart_viewer binary
-cp chart_viewer /usr/local/bin/
-export CHART_VIEWER_PATH=/usr/local/bin/chart_viewer
-
-# Step 3: Load and use
-LOAD miniplot;
-SELECT bar_chart(
-    LIST_VALUE('Q1', 'Q2', 'Q3', 'Q4'),
-    LIST_VALUE(100, 150, 200, 180),
-    'Quarterly Sales'
-);
-```
-
-### Problem
-
-This approach has significant limitations:
-- **Not suitable for community extension distribution** - Requires external binary (`chart_viewer`) that isn't included in the `.duckdb_extension` file
-- **Manual configuration required** - Users must locate and install the chart_viewer binary separately
-- **Platform-specific binaries needed** - Separate chart_viewer builds for macOS, Linux, and Windows
-
----
-
-## Proposed Solution: HTML-Based Visualization
-
-We are considering migrating to an **HTML-based approach** to enable proper community extension distribution:
-
-### Benefits
-- ✅ **Single binary distribution** - Everything embedded in one `.duckdb_extension` file
-- ✅ **No external dependencies** - No need for separate chart_viewer binary
-- ✅ **True "install and use"** - Works immediately after `INSTALL miniplot FROM community`
-- ✅ **Cross-platform compatibility** - Uses system browser (always available)
-- ✅ **Standards compliant** - Matches DuckDB community extension requirements
-
-### Implementation Approach
-Replace native Iced GUI with HTML generation using Plotly.js or similar library, opening charts in the user's default browser.
-
----
-
-**Feedback welcome:** We'd appreciate community input on whether native GUI (current) vs browser-based visualization (proposed) better serves users' needs.
 ## License
 
 MIT License - see [LICENSE](LICENSE) file
 
 ## Acknowledgments
 
-Based on [DuckDB Extension Template](https://github.com/duckdb/extension-template)
+- Built with [DuckDB](https://duckdb.org/)
+- Powered by [Plotly.js](https://plotly.com/javascript/)
+- Written in [Rust](https://www.rust-lang.org/) and C++
+
+## Links
+
+- [Community Extensions](https://github.com/duckdb/community-extensions)
+- [Issue Tracker](https://github.com/nkwork9999/miniplot/issues)
+- [DuckDB Documentation](https://duckdb.org/docs/)
+
 ````

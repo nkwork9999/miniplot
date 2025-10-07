@@ -1,11 +1,33 @@
-build
-.idea
-cmake-build-debug
-duckdb_unittest_tempdir/
+# .gitignore を確認・作成
+cat > .gitignore << 'EOF'
+# ビルドファイル
+build/
+*.o
+*.a
+*.so
+*.dylib
+*.duckdb_extension
+
+# Rust
+chart_viewer/target/
+Cargo.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
 .DS_Store
-testext
-test/python/__pycache__/
-.Rhistory
-"rust_lib/target/"
-"chart_viewer/target/"
-"Cargo.lock"
+Thumbs.db
+
+# テンポラリファイル
+/tmp/
+*.tmp
+*.log
+
+# DuckDB
+*.db
+*.duckdb
+EOF

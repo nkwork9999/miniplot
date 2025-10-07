@@ -1,25 +1,29 @@
 #!/bin/bash
 set -e
 
-echo "=== Building Miniplot Extension with Static Linking ==="
+echo "=== Building Miniplot Extension (Offline Plotly.js) ==="
 
-echo "Step 1: Building Rust library and standalone binary..."
+# Plotly.jsの存在確認
+if [ ! -f "chart_viewer/assets/plotly.min.js" ]; then
+    echo "Error: plotly.min.js not found!"
+    echo "Please download it first:"
+    echo "  mkdir -p chart_viewer/assets"
+    echo "  curl -o chart_viewer/assets/plotly.min.js https://cdn.plot.ly/plotly-2.27.0.min.js"
+    exit 1
+fi
+
+echo "Step 1: Building Rust library..."
 cd chart_viewer
 cargo build --release --lib
-cargo build --release --bin chart_viewer_standalone
 cd ..
 
-echo "Step 2: Copying standalone binary to local directory..."
-# /usr/local/bin ではなくプロジェクト内にコピー
-mkdir -p bin
-cp chart_viewer/target/release/chart_viewer_standalone bin/
-
-echo "Step 3: Building DuckDB extension..."
+echo "Step 2: Building DuckDB extension..."
 make release
 
 echo ""
 echo "=== Build Complete ==="
 echo "Extension: build/release/extension/miniplot/miniplot.duckdb_extension"
-echo "Standalone: bin/chart_viewer_standalone"
 ls -lh build/release/extension/miniplot/miniplot.duckdb_extension
-ls -lh bin/chart_viewer_standalone
+
+echo ""
+echo "Plotly.js embedded: $(ls -lh chart_viewer/assets/plotly.min.js | awk '{print $5}')"
