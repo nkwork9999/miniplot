@@ -14,7 +14,7 @@ No more switching between pandas and matplotlib for data visualization.
 
 - 🔄 **Complete C++-only rewrite** - Removed Rust dependency for better compatibility
 - 🌐 **Browser-based rendering** - Charts open in your default browser
-- 📦 **Fully offline** - Plotly.js embedded (~3MB), no internet required
+- 📦 **Lightweight build** - Uses Plotly.js CDN (no large embedded libraries)
 - 🎨 **Interactive features** - Zoom, pan, hover tooltips, export to PNG
 - 🚀 **Worker thread compatible** - Works in DuckDB Community Extensions
 - ⚡ **Single binary** - No external dependencies at runtime
@@ -25,7 +25,7 @@ No more switching between pandas and matplotlib for data visualization.
 - 🖥️ **Browser-based rendering**: Charts open in your default web browser
 - 🚀 **Simple SQL interface**: Visualize data directly from SQL queries
 - 💻 **Cross-platform**: Works on macOS, Linux, and Windows
-- 🔒 **Fully offline**: No internet connection required
+- 🌐 **Internet required**: Initial chart rendering requires internet connection (Plotly.js loads from CDN, then cached by browser)
 - ✨ **Interactive**: Zoom, pan, hover, and export capabilities
 
 ## Installation
@@ -34,8 +34,6 @@ No more switching between pandas and matplotlib for data visualization.
 INSTALL miniplot FROM community;
 LOAD miniplot;
 ```
-
-````
 
 That's it! No additional setup required.
 
@@ -100,6 +98,22 @@ SELECT bar_chart(
 ) FROM sales;
 ```
 
+### Working with CSV Files
+
+```sql
+-- Load CSV data
+CREATE TABLE stocks AS
+SELECT * FROM read_csv_auto('stocks.csv');
+
+-- Visualize stock prices
+SELECT line_chart(
+    list(CAST(date AS VARCHAR) ORDER BY date),
+    list(price ORDER BY date),
+    'Stock Price Trend'
+)
+FROM stocks;
+```
+
 ## How It Works
 
 ```
@@ -108,30 +122,11 @@ SQL Query → Data Extraction → HTML Generation → Browser Opens → Interact
 
 1. **SQL Query** → Execute chart function with your data
 2. **Data Extraction** → Extension processes your data
-3. **HTML Generation** → Creates HTML with embedded Plotly.js
+3. **HTML Generation** → Creates HTML with Plotly.js CDN link
 4. **Browser Opens** → Opens in your default browser
 5. **Interactive Chart** → Zoom, pan, hover, export
 
-## Why Miniplot?
-
-### vs pandas + matplotlib
-
-| Feature               | miniplot      | pandas + matplotlib   |
-| --------------------- | ------------- | --------------------- |
-| **Language**          | SQL only      | Python required       |
-| **Setup**             | 1 SQL command | pip install × 2       |
-| **Context Switching** | None          | Query → Python → Plot |
-| **Interactive**       | ✅ Full       | ❌ Static images      |
-| **Data Size**         | Unlimited     | Memory limited        |
-
-### vs Jupyter + Plotly
-
-| Feature          | miniplot       | Jupyter + Plotly  |
-| ---------------- | -------------- | ----------------- |
-| **Environment**  | Any SQL client | Browser + Server  |
-| **Deployment**   | Single binary  | Python + packages |
-| **Startup Time** | Instant        | Notebook loading  |
-| **Sharing**      | SQL query      | Notebook file     |
+**Note**: Charts require internet connection on first use. After initial load, Plotly.js is cached by your browser and works offline.
 
 ## Architecture
 
@@ -147,13 +142,14 @@ SQL Query → Data Extraction → HTML Generation → Browser Opens → Interact
 │   Extension (C++)               │
 │   - Data extraction             │
 │   - HTML generation             │
-│   - Plotly.js embedded          │
+│   - Plotly.js CDN link          │
 └────────────┬────────────────────┘
              ↓
 ┌─────────────────────────────────┐
 │   Browser Opens                 │
+│   - Loads Plotly.js from CDN    │
 │   - Interactive chart           │
-│   - No internet needed          │
+│   - Caches for offline use      │
 └─────────────────────────────────┘
 ```
 
@@ -178,6 +174,12 @@ All charts include:
 - 💾 **Export** - Download as PNG image
 - 🔄 **Reset** - Double-click to reset view
 
+## Requirements
+
+- **Internet connection**: Required for first-time chart rendering (Plotly.js loads from CDN)
+- **Browser**: Any modern web browser (Chrome, Firefox, Safari, Edge)
+- After initial use, charts work offline (browser caches Plotly.js)
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) file
@@ -197,4 +199,3 @@ MIT License - see [LICENSE](LICENSE) file
 ```
 
 ```
-````
