@@ -1,9 +1,9 @@
 #define DUCKDB_EXTENSION_MAIN
 
 #include "miniplot_extension.hpp"
+#include "plotly_embedded.hpp"
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
-#include "duckdb/common/exception/catalog_exception.hpp"
 #include "duckdb/function/scalar_function.hpp"
 #include "duckdb/main/extension_entries.hpp"
 #include "duckdb/parser/parsed_data/create_scalar_function_info.hpp"
@@ -12,24 +12,13 @@
 #include "duckdb/catalog/catalog.hpp"
 
 #include <fstream>
+#include <sstream>
 #include <vector>
+#include <cstdlib>
+#include <ctime>
 #include <openssl/opensslv.h>
 
 namespace duckdb {
-
-// Rust FFI declarations
-extern "C" {
-    struct ChartData {
-        const char** x_labels;
-        size_t x_len;
-        const double* y_values;
-        size_t y_len;
-        const char* title;
-        const char* chart_type;
-    };
-    
-    int chart_viewer_show_chart(const ChartData* data);
-}
 
 // Test function
 inline void MiniplotTestFunction(DataChunk &args, ExpressionState &state, Vector &result) {
@@ -49,9 +38,29 @@ inline void MiniplotOpenSSLVersionFunction(DataChunk &args, ExpressionState &sta
     });
 }
 
-// Helper function to extract string list
-static std::vector<std::string> ExtractStringList(const Vector &list_vector, idx_t row_idx) {
-    std::vector<std::string> result;
+// Helper: Escape strings for JavaScript
+static string EscapeString(const string &input) {
+    string output;
+    output.reserve(input.size() * 1.2);
+    for (char c : input) {
+        switch (c) {
+            case '\'': output += "\\'"; break;
+            case '"': output += "\\\""; break;
+            case '\\': output += "\\\\"; break;
+            case '\n': output += "\\n"; break;
+            case '\r': output += "\\r"; break;
+            case '\t': output += "\\t"; break;
+            case '<': output += "\\x3C"; break;
+            case '>': output += "\\x3E"; break;
+            default: output += c;
+        }
+    }
+    return output;
+}
+
+// Helper: Extract string list from DuckDB List
+static std::vector<string> ExtractStringList(const Vector &list_vector, idx_t row_idx) {
+    std::vector<string> result;
     
     try {
         auto val = list_vector.GetValue(row_idx);
@@ -72,7 +81,7 @@ static std::vector<std::string> ExtractStringList(const Vector &list_vector, idx
     return result;
 }
 
-// Helper function to extract double list
+// Helper: Extract double list from DuckDB List
 static std::vector<double> ExtractDoubleList(const Vector &list_vector, idx_t row_idx) {
     std::vector<double> result;
     
@@ -94,272 +103,333 @@ static std::vector<double> ExtractDoubleList(const Vector &list_vector, idx_t ro
     
     return result;
 }
-
-// Helper function to call Rust chart viewer
-static void CallChartViewer(
-    const std::vector<std::string> &x_strings,
-    const std::vector<double> &y_values,
+// Generate complete HTML with embedded Plotly.js
+static string GenerateHTML(
+    const std::vector<string> &x_data,
+    const std::vector<double> &y_data,
     const string &title,
-    const char* chart_type,
+    const string &chart_type
+) {
+    // Convert X data to JSON array
+    std::ostringstream x_json;
+    x_json << "[";
+    for (size_t i = 0; i < x_data.size(); i++) {
+        if (i > 0) x_json << ", ";
+        x_json << "'" << EscapeString(x_data[i]) << "'";
+    }
+    x_json << "]";
+    
+    // Convert Y data to JSON array
+    std::ostringstream y_json;
+    y_json << "[";
+    for (size_t i = 0; i < y_data.size(); i++) {
+        if (i > 0) y_json << ", ";
+        y_json << y_data[i];
+    }
+    y_json << "]";
+    
+    // Map chart type to Plotly configuration
+    string plotly_type = "bar";
+    string mode = "";
+    string fill = "";
+    
+    if (chart_type == "line") {
+        plotly_type = "scatter";
+        mode = "mode: 'lines+markers',";
+    } else if (chart_type == "scatter") {
+        plotly_type = "scatter";
+        mode = "mode: 'markers',";
+    } else if (chart_type == "area") {
+        plotly_type = "scatter";
+        mode = "mode: 'lines',";
+        fill = "fill: 'tozeroy',";
+    }
+    
+    // Get embedded Plotly.js
+    string plotly_js = GetPlotlyJS();
+    
+    // Generate HTML
+    std::ostringstream html;
+    html << R"(<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>)" << EscapeString(title) << R"( - DuckDB Chart</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+            background: #f5f5f5;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: #ffffff;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            margin: 0 0 20px 0;
+            color: #333333;
+            font-size: 28px;
+            font-weight: 700;
+            text-align: center;
+        }
+        #chart {
+            width: 100%;
+            height: 600px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>)" << EscapeString(title) << R"(</h1>
+        <div id="chart"></div>
+    </div>
+    
+    <script>
+    )" << plotly_js << R"(
+    </script>
+    
+    <script>
+    var data = [{
+        x: )" << x_json.str() << R"(,
+        y: )" << y_json.str() << R"(,
+        type: ')" << plotly_type << R"(',
+        )" << mode << R"(
+        )" << fill << R"(
+        marker: {
+            color: 'rgb(59, 130, 246)',
+            size: 10
+        },
+        line: {
+            color: 'rgb(59, 130, 246)',
+            width: 3
+        }
+    }];
+    
+    var layout = {
+        xaxis: {
+            showgrid: true,
+            gridcolor: '#e5e5e5',
+            zeroline: false
+        },
+        yaxis: {
+            title: 'Value',
+            showgrid: true,
+            gridcolor: '#e5e5e5',
+            zeroline: false
+        },
+        plot_bgcolor: '#ffffff',
+        paper_bgcolor: '#ffffff',
+        font: {
+            family: '-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif',
+            size: 13,
+            color: '#333333'
+        },
+        margin: { t: 40, r: 40, b: 60, l: 70 },
+        autosize: true,
+        hovermode: 'closest'
+    };
+    
+    var config = {
+        responsive: true,
+        displayModeBar: true,
+        displaylogo: false,
+        modeBarButtonsToRemove: ['lasso2d', 'select2d'],
+        toImageButtonOptions: {
+            format: 'png',
+            filename: 'duckdb_chart',
+            height: 800,
+            width: 1200,
+            scale: 2
+        }
+    };
+    
+    Plotly.newPlot('chart', data, layout, config);
+    
+    window.addEventListener('resize', function() {
+        Plotly.Plots.resize('chart');
+    });
+    </script>
+</body>
+</html>)";
+    
+    return html.str();
+}
+// Generate complete HTML with embedded Plotly.js
+// Open HTML in default browser
+static void OpenInBrowser(const string &html_path) {
+#ifdef _WIN32
+    string command = "cmd /C start \"\" \"" + html_path + "\"";
+    system(command.c_str());
+#elif __APPLE__
+    string command = "open \"" + html_path + "\"";
+    system(command.c_str());
+#else
+    string command = "xdg-open \"" + html_path + "\" 2>/dev/null &";
+    system(command.c_str());
+#endif
+}
+
+// Main chart creation function
+static void CreateChart(
+    const std::vector<string> &x_data,
+    const std::vector<double> &y_data,
+    const string &title,
+    const string &chart_type,
     Vector &result
 ) {
     // Validate input
-    if (x_strings.empty() && y_values.empty()) {
+    if (x_data.empty() && y_data.empty()) {
         throw InvalidInputException("Chart data cannot be empty");
     }
     
-    if (!x_strings.empty() && !y_values.empty() && x_strings.size() != y_values.size()) {
+    if (!x_data.empty() && !y_data.empty() && x_data.size() != y_data.size()) {
         throw InvalidInputException(
             "X and Y data must have the same length (X: %llu, Y: %llu)",
-            (unsigned long long)x_strings.size(),
-            (unsigned long long)y_values.size()
+            (unsigned long long)x_data.size(),
+            (unsigned long long)y_data.size()
         );
     }
     
     try {
-        // Convert to C arrays
-        std::vector<const char*> x_ptrs;
-        for (const auto& s : x_strings) {
-            x_ptrs.push_back(s.c_str());
-        }
-
-        // Prepare ChartData
-        ChartData chart_data;
-        chart_data.x_labels = x_ptrs.empty() ? nullptr : x_ptrs.data();
-        chart_data.x_len = x_ptrs.size();
-        chart_data.y_values = y_values.empty() ? nullptr : y_values.data();
-        chart_data.y_len = y_values.size();
-        chart_data.title = title.c_str();
-        chart_data.chart_type = chart_type;
-
-        // Call Rust function
-        int ret = chart_viewer_show_chart(&chart_data);
+        // Generate HTML
+        string html = GenerateHTML(x_data, y_data, title, chart_type);
         
-        if (ret == 0) {
-            result.SetValue(0, Value("Chart opened in browser"));
-        } else {
-            throw IOException("Failed to open chart viewer (error code: %d)", ret);
+        // Create temp file path
+        std::ostringstream temp_path_stream;
+#ifdef _WIN32
+        const char* temp_dir = getenv("TEMP");
+        if (!temp_dir) temp_dir = getenv("TMP");
+        if (!temp_dir) temp_dir = "C:\\Windows\\Temp";
+        temp_path_stream << temp_dir << "\\duckdb_chart_" 
+                        << time(nullptr) << "_" << rand() << ".html";
+#else
+        temp_path_stream << "/tmp/duckdb_chart_" 
+                        << time(nullptr) << "_" << rand() << ".html";
+#endif
+        
+        string temp_path = temp_path_stream.str();
+        
+        // Write HTML to file
+        std::ofstream file(temp_path, std::ios::binary);
+        if (!file) {
+            throw IOException("Failed to create temporary HTML file: %s", temp_path.c_str());
         }
+        file << html;
+        file.close();
+        
+        // Open in browser
+        OpenInBrowser(temp_path);
+        
+        result.SetValue(0, Value("Chart opened in browser: " + temp_path));
     } catch (const Exception &e) {
         throw;
     } catch (const std::exception &e) {
-        throw InternalException("Unexpected error while opening chart: %s", e.what());
+        throw InternalException("Failed to create chart: %s", e.what());
     }
 }
 
-// Bar chart function
+// Chart functions
 inline void BarChartFunction(DataChunk &args, ExpressionState &state, Vector &result) {
-    try {
-        auto &x_list = args.data[0];
-        auto &y_list = args.data[1];
-        auto &title_vec = args.data[2];
-
-        // Extract data
-        auto x_strings = ExtractStringList(x_list, 0);
-        auto y_values = ExtractDoubleList(y_list, 0);
-        string title_str = title_vec.GetValue(0).ToString();
-
-        CallChartViewer(x_strings, y_values, title_str, "bar", result);
-    } catch (const Exception &e) {
-        throw;
-    } catch (const std::exception &e) {
-        throw InternalException("Bar chart error: %s", e.what());
-    }
+    auto x_strings = ExtractStringList(args.data[0], 0);
+    auto y_values = ExtractDoubleList(args.data[1], 0);
+    string title_str = args.data[2].GetValue(0).ToString();
+    CreateChart(x_strings, y_values, title_str, "bar", result);
 }
 
-// Line chart function
 inline void LineChartFunction(DataChunk &args, ExpressionState &state, Vector &result) {
-    try {
-        auto &x_list = args.data[0];
-        auto &y_list = args.data[1];
-        auto &title_vec = args.data[2];
-
-        auto x_strings = ExtractStringList(x_list, 0);
-        auto y_values = ExtractDoubleList(y_list, 0);
-        string title_str = title_vec.GetValue(0).ToString();
-
-        CallChartViewer(x_strings, y_values, title_str, "line", result);
-    } catch (const Exception &e) {
-        throw;
-    } catch (const std::exception &e) {
-        throw InternalException("Line chart error: %s", e.what());
-    }
+    auto x_strings = ExtractStringList(args.data[0], 0);
+    auto y_values = ExtractDoubleList(args.data[1], 0);
+    string title_str = args.data[2].GetValue(0).ToString();
+    CreateChart(x_strings, y_values, title_str, "line", result);
 }
 
-// Scatter chart function
 inline void ScatterChartFunction(DataChunk &args, ExpressionState &state, Vector &result) {
-    try {
-        auto &x_list = args.data[0];
-        auto &y_list = args.data[1];
-        auto &title_vec = args.data[2];
-
-        auto x_values = ExtractDoubleList(x_list, 0);
-        auto y_values = ExtractDoubleList(y_list, 0);
-        string title_str = title_vec.GetValue(0).ToString();
-
-        // Convert X values to strings
-        std::vector<std::string> x_strings;
-        for (double v : x_values) {
-            x_strings.push_back(std::to_string(v));
-        }
-
-        CallChartViewer(x_strings, y_values, title_str, "scatter", result);
-    } catch (const Exception &e) {
-        throw;
-    } catch (const std::exception &e) {
-        throw InternalException("Scatter chart error: %s", e.what());
+    auto x_values = ExtractDoubleList(args.data[0], 0);
+    auto y_values = ExtractDoubleList(args.data[1], 0);
+    string title_str = args.data[2].GetValue(0).ToString();
+    
+    std::vector<string> x_strings;
+    for (double v : x_values) {
+        x_strings.push_back(std::to_string(v));
     }
+    
+    CreateChart(x_strings, y_values, title_str, "scatter", result);
 }
 
-// Histogram function (コメントアウト - 未実装)
-/*
-inline void HistogramFunction(DataChunk &args, ExpressionState &state, Vector &result) {
-    try {
-        auto &data_list = args.data[0];
-        auto &title_vec = args.data[2];
-
-        auto values = ExtractDoubleList(data_list, 0);
-        string title_str = title_vec.GetValue(0).ToString();
-
-        // Empty x labels for histogram
-        std::vector<std::string> empty_labels;
-
-        CallChartViewer(empty_labels, values, title_str, "histogram", result);
-    } catch (const Exception &e) {
-        throw;
-    } catch (const std::exception &e) {
-        throw InternalException("Histogram error: %s", e.what());
-    }
-}
-*/
-
-// Area chart function
 inline void AreaChartFunction(DataChunk &args, ExpressionState &state, Vector &result) {
-    try {
-        auto &x_list = args.data[0];
-        auto &y_list = args.data[1];
-        auto &title_vec = args.data[2];
-
-        auto x_strings = ExtractStringList(x_list, 0);
-        auto y_values = ExtractDoubleList(y_list, 0);
-        string title_str = title_vec.GetValue(0).ToString();
-
-        CallChartViewer(x_strings, y_values, title_str, "area", result);
-    } catch (const Exception &e) {
-        throw;
-    } catch (const std::exception &e) {
-        throw InternalException("Area chart error: %s", e.what());
-    }
+    auto x_strings = ExtractStringList(args.data[0], 0);
+    auto y_values = ExtractDoubleList(args.data[1], 0);
+    string title_str = args.data[2].GetValue(0).ToString();
+    CreateChart(x_strings, y_values, title_str, "area", result);
 }
 
-// LoadInternal (ExtensionLoader version)
+// Registration functions
 static void LoadInternal(ExtensionLoader &loader) {
-    // Test function
-    auto miniplot_test = ScalarFunction("miniplot", {LogicalType::VARCHAR}, 
-                                       LogicalType::VARCHAR, MiniplotTestFunction);
-    loader.RegisterFunction(miniplot_test);
-
-    // OpenSSL version function
-    auto openssl_version = ScalarFunction("miniplot_openssl_version", {LogicalType::VARCHAR}, 
-                                         LogicalType::VARCHAR, MiniplotOpenSSLVersionFunction);
-    loader.RegisterFunction(openssl_version);
-
-    // Bar chart
-    auto bar_chart = ScalarFunction(
-        "bar_chart",
+    loader.RegisterFunction(ScalarFunction("miniplot", {LogicalType::VARCHAR}, 
+                                          LogicalType::VARCHAR, MiniplotTestFunction));
+    
+    loader.RegisterFunction(ScalarFunction("miniplot_openssl_version", {LogicalType::VARCHAR}, 
+                                          LogicalType::VARCHAR, MiniplotOpenSSLVersionFunction));
+    
+    loader.RegisterFunction(ScalarFunction("bar_chart",
         {LogicalType::LIST(LogicalType::VARCHAR), LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR},
-        LogicalType::VARCHAR, BarChartFunction);
-    loader.RegisterFunction(bar_chart);
-
-    // Line chart
-    auto line_chart = ScalarFunction(
-        "line_chart",
+        LogicalType::VARCHAR, BarChartFunction));
+    
+    loader.RegisterFunction(ScalarFunction("line_chart",
         {LogicalType::LIST(LogicalType::VARCHAR), LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR},
-        LogicalType::VARCHAR, LineChartFunction);
-    loader.RegisterFunction(line_chart);
-
-    // Scatter chart
-    auto scatter_chart = ScalarFunction(
-        "scatter_chart",
+        LogicalType::VARCHAR, LineChartFunction));
+    
+    loader.RegisterFunction(ScalarFunction("scatter_chart",
         {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR},
-        LogicalType::VARCHAR, ScatterChartFunction);
-    loader.RegisterFunction(scatter_chart);
-
-    // Histogram (コメントアウト - 未実装)
-    /*
-    auto histogram = ScalarFunction(
-        "histogram_chart", 
-        {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::INTEGER, LogicalType::VARCHAR},
-        LogicalType::VARCHAR, HistogramFunction);
-    loader.RegisterFunction(histogram);
-    */
-
-    // Area chart
-    auto area_chart = ScalarFunction(
-        "area_chart",
+        LogicalType::VARCHAR, ScatterChartFunction));
+    
+    loader.RegisterFunction(ScalarFunction("area_chart",
         {LogicalType::LIST(LogicalType::VARCHAR), LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR},
-        LogicalType::VARCHAR, AreaChartFunction);
-    loader.RegisterFunction(area_chart);
+        LogicalType::VARCHAR, AreaChartFunction));
 }
 
-// LoadInternal (DatabaseInstance version)
 static void LoadInternal(DatabaseInstance &instance) {
     Connection con(instance);
     auto &context = *con.context;
     auto &catalog = Catalog::GetSystemCatalog(instance);
-
-    // Test function
-    auto miniplot_test = ScalarFunction("miniplot", {LogicalType::VARCHAR}, 
-                                       LogicalType::VARCHAR, MiniplotTestFunction);
-    CreateScalarFunctionInfo test_info(miniplot_test);
+    
+    CreateScalarFunctionInfo test_info(ScalarFunction("miniplot", {LogicalType::VARCHAR}, 
+                                                      LogicalType::VARCHAR, MiniplotTestFunction));
     catalog.CreateFunction(context, test_info);
-
-    // OpenSSL version function
-    auto openssl_version = ScalarFunction("miniplot_openssl_version", {LogicalType::VARCHAR}, 
-                                         LogicalType::VARCHAR, MiniplotOpenSSLVersionFunction);
-    CreateScalarFunctionInfo openssl_info(openssl_version);
+    
+    CreateScalarFunctionInfo openssl_info(ScalarFunction("miniplot_openssl_version", {LogicalType::VARCHAR}, 
+                                                         LogicalType::VARCHAR, MiniplotOpenSSLVersionFunction));
     catalog.CreateFunction(context, openssl_info);
-
-    // Bar chart
-    auto bar_chart = ScalarFunction(
-        "bar_chart",
+    
+    CreateScalarFunctionInfo bar_info(ScalarFunction("bar_chart",
         {LogicalType::LIST(LogicalType::VARCHAR), LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR},
-        LogicalType::VARCHAR, BarChartFunction);
-    CreateScalarFunctionInfo bar_info(bar_chart);
+        LogicalType::VARCHAR, BarChartFunction));
     catalog.CreateFunction(context, bar_info);
-
-    // Line chart
-    auto line_chart = ScalarFunction(
-        "line_chart",
+    
+    CreateScalarFunctionInfo line_info(ScalarFunction("line_chart",
         {LogicalType::LIST(LogicalType::VARCHAR), LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR},
-        LogicalType::VARCHAR, LineChartFunction);
-    CreateScalarFunctionInfo line_info(line_chart);
+        LogicalType::VARCHAR, LineChartFunction));
     catalog.CreateFunction(context, line_info);
-
-    // Scatter chart
-    auto scatter_chart = ScalarFunction(
-        "scatter_chart",
+    
+    CreateScalarFunctionInfo scatter_info(ScalarFunction("scatter_chart",
         {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR},
-        LogicalType::VARCHAR, ScatterChartFunction);
-    CreateScalarFunctionInfo scatter_info(scatter_info);
+        LogicalType::VARCHAR, ScatterChartFunction));
     catalog.CreateFunction(context, scatter_info);
-
-    // Histogram (コメントアウト - 未実装)
-    /*
-    auto histogram = ScalarFunction(
-        "histogram_chart", 
-        {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::INTEGER, LogicalType::VARCHAR},
-        LogicalType::VARCHAR, HistogramFunction);
-    CreateScalarFunctionInfo hist_info(histogram);
-    catalog.CreateFunction(context, hist_info);
-    */
-
-    // Area chart
-    auto area_chart = ScalarFunction(
-        "area_chart",
+    
+    CreateScalarFunctionInfo area_info(ScalarFunction("area_chart",
         {LogicalType::LIST(LogicalType::VARCHAR), LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR},
-        LogicalType::VARCHAR, AreaChartFunction);
-    CreateScalarFunctionInfo area_info(area_chart);
+        LogicalType::VARCHAR, AreaChartFunction));
     catalog.CreateFunction(context, area_info);
 }
 
@@ -382,7 +452,6 @@ std::string MiniplotExtension::Version() const {
 } // namespace duckdb
 
 extern "C" {
-
 DUCKDB_EXTENSION_API void miniplot_duckdb_cpp_init(duckdb::ExtensionLoader &loader) {
     duckdb::LoadInternal(loader);
 }
@@ -394,5 +463,4 @@ DUCKDB_EXTENSION_API void miniplot_init(duckdb::DatabaseInstance &db) {
 DUCKDB_EXTENSION_API const char *miniplot_version() {
     return duckdb::DuckDB::LibraryVersion();
 }
-
 }

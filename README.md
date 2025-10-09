@@ -12,12 +12,12 @@ No more switching between pandas and matplotlib for data visualization.
 
 ## ✨ What's New in v0.0.2
 
-- 🔄 **Complete rewrite** using Plotly.js for better compatibility
+- 🔄 **Complete C++-only rewrite** - Removed Rust dependency for better compatibility
 - 🌐 **Browser-based rendering** - Charts open in your default browser
-- 📦 **Fully offline** - Plotly.js embedded (3.4MB), no internet required
+- 📦 **Fully offline** - Plotly.js embedded (~3MB), no internet required
 - 🎨 **Interactive features** - Zoom, pan, hover tooltips, export to PNG
-- 🚀 **Simpler architecture** - No external binaries or process management
-- ⚡ **Single file** - Just 9.2MB, install and use immediately
+- 🚀 **Worker thread compatible** - Works in DuckDB Community Extensions
+- ⚡ **Single binary** - No external dependencies at runtime
 
 ## Features
 
@@ -144,9 +144,9 @@ SQL Query → Data Extraction → HTML Generation → Browser Opens → Interact
 └────────────┬────────────────────┘
              ↓
 ┌─────────────────────────────────┐
-│   Extension (9.2MB)             │
-│   - C++ interface               │
-│   - Rust HTML generator         │
+│   Extension (C++)               │
+│   - Data extraction             │
+│   - HTML generation             │
 │   - Plotly.js embedded          │
 └────────────┬────────────────────┘
              ↓
@@ -186,7 +186,7 @@ MIT License - see [LICENSE](LICENSE) file
 
 - Built with [DuckDB](https://duckdb.org/)
 - Powered by [Plotly.js](https://plotly.com/javascript/)
-- Written in [Rust](https://www.rust-lang.org/) and C++
+- Written in C++
 
 ## Links
 
@@ -194,4 +194,7 @@ MIT License - see [LICENSE](LICENSE) file
 - [Issue Tracker](https://github.com/nkwork9999/miniplot/issues)
 - [DuckDB Documentation](https://duckdb.org/docs/)
 
+```
+
+```
 ````
