@@ -1,7 +1,6 @@
 #define DUCKDB_EXTENSION_MAIN
 
 #include "miniplot_extension.hpp"
-#include "plotly_embedded.hpp"
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/function/scalar_function.hpp"
@@ -103,7 +102,8 @@ static std::vector<double> ExtractDoubleList(const Vector &list_vector, idx_t ro
     
     return result;
 }
-// Generate complete HTML with embedded Plotly.js
+
+// Generate HTML with Plotly.js CDN
 static string GenerateHTML(
     const std::vector<string> &x_data,
     const std::vector<double> &y_data,
@@ -144,9 +144,6 @@ static string GenerateHTML(
         mode = "mode: 'lines',";
         fill = "fill: 'tozeroy',";
     }
-    
-    // Get embedded Plotly.js
-    string plotly_js = GetPlotlyJS();
     
     // Generate HTML
     std::ostringstream html;
@@ -195,9 +192,7 @@ static string GenerateHTML(
         <div id="chart"></div>
     </div>
     
-    <script>
-    )" << plotly_js << R"(
-    </script>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
     
     <script>
     var data = [{
@@ -265,7 +260,7 @@ static string GenerateHTML(
     
     return html.str();
 }
-// Generate complete HTML with embedded Plotly.js
+
 // Open HTML in default browser
 static void OpenInBrowser(const string &html_path) {
 #ifdef _WIN32
@@ -445,7 +440,7 @@ std::string MiniplotExtension::Version() const {
 #ifdef EXT_VERSION_MINIPLOT
     return EXT_VERSION_MINIPLOT;
 #else
-    return "0.0.1";
+    return "0.0.2";
 #endif
 }
 
