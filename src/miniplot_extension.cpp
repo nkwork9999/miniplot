@@ -9,6 +9,8 @@
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/parser/parsed_data/create_scalar_function_info.hpp"
 
+#include <openssl/opensslv.h>
+
 #include <fstream>
 #include <sstream>
 #include <vector>
@@ -232,6 +234,16 @@ inline void MiniplotScalarFun(DataChunk &args, ExpressionState &state, Vector &r
 	});
 }
 
+inline void MiniplotOpenSSLVersionFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	auto &name_vector = args.data[0];
+	UnaryExecutor::Execute<string_t, string_t>(name_vector, result, args.size(), [&](string_t name) {
+		std::string version_string = "Miniplot " + name.GetString() + 
+		                            ", my linked OpenSSL version is " + 
+		                            OPENSSL_VERSION_TEXT;
+		return StringVector::AddString(result, version_string);
+	});
+}
+
 inline void BarChartFunction(DataChunk &args, ExpressionState &state, Vector &result) {
 	auto x_strings = ExtractStringList(args.data[0], 0);
 	auto y_values = ExtractDoubleList(args.data[1], 0);
@@ -269,6 +281,10 @@ inline void AreaChartFunction(DataChunk &args, ExpressionState &state, Vector &r
 void MiniplotExtension::Load(ExtensionLoader &loader) {
 	loader.RegisterFunction(
 	    ScalarFunction("miniplot", {LogicalType::VARCHAR}, LogicalType::VARCHAR, MiniplotScalarFun));
+
+	loader.RegisterFunction(
+	    ScalarFunction("miniplot_openssl_version", {LogicalType::VARCHAR}, LogicalType::VARCHAR, 
+	                  MiniplotOpenSSLVersionFunction));
 
 	loader.RegisterFunction(ScalarFunction(
 	    "bar_chart",
@@ -323,6 +339,11 @@ DUCKDB_EXTENSION_API void miniplot_init(duckdb::DatabaseInstance &db) {
 	duckdb::CreateScalarFunctionInfo miniplot_func(duckdb::ScalarFunction(
 	    "miniplot", {duckdb::LogicalType::VARCHAR}, duckdb::LogicalType::VARCHAR, duckdb::MiniplotScalarFun));
 	catalog.CreateFunction(*con.context, miniplot_func);
+
+	duckdb::CreateScalarFunctionInfo miniplot_openssl_func(duckdb::ScalarFunction(
+	    "miniplot_openssl_version", {duckdb::LogicalType::VARCHAR}, duckdb::LogicalType::VARCHAR, 
+	    duckdb::MiniplotOpenSSLVersionFunction));
+	catalog.CreateFunction(*con.context, miniplot_openssl_func);
 
 	duckdb::CreateScalarFunctionInfo bar_chart_func(
 	    duckdb::ScalarFunction("bar_chart",

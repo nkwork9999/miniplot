@@ -8,12 +8,19 @@ project(${TARGET_NAME})
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+# OpenSSLを検索
+find_package(OpenSSL REQUIRED)
+
 set(EXTENSION_SOURCES src/miniplot_extension.cpp)
 
-include_directories(src/include)
+include_directories(src/include ${OPENSSL_INCLUDE_DIR})
 
 build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})
 build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES})
+
+# OpenSSLをリンク
+target_link_libraries(${EXTENSION_NAME} OpenSSL::SSL OpenSSL::Crypto)
+target_link_libraries(${LOADABLE_EXTENSION_NAME} OpenSSL::SSL OpenSSL::Crypto)
 
 install(
   TARGETS ${EXTENSION_NAME}
