@@ -1,4 +1,4 @@
-# Miniplot
+# Miniplot[Pending Now]
 
 Interactive chart visualization extension for DuckDB - bringing pandas + matplotlib style data visualization directly to SQL, without leaving your database.
 
