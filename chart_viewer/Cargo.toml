@@ -2,19 +2,31 @@
 name = "chart_viewer"
 version = "0.1.0"
 edition = "2021"
-build = "build.rs"  # ← この行を追加
+authors = ["Your Name <your.email@example.com>"]
+description = "DuckDB extension for interactive chart visualization using Iced"
+license = "MIT"
+repository = "https://github.com/your_username/chart_viewer"
 
 [lib]
-name = "chart_viewer"
-crate-type = ["staticlib", "rlib"]
-
-[[bin]]
-name = "chart_viewer_standalone"
-path = "src/main.rs"
+crate-type = ["cdylib"]
 
 [dependencies]
+# DuckDB C API bindings
+libduckdb-sys = "1.0"
+
+# GUI framework
 iced = { version = "0.13", features = ["canvas"] }
+
+# JSON parsing
+serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
-[build-dependencies]
-# build.rs用の依存は不要（標準ライブラリのみ使用）
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+
+[profile.dev]
+opt-level = 0
+debug = true

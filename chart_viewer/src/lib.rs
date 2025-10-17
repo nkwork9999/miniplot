@@ -1,11 +1,22 @@
+// chart_viewer DuckDB Extension
+// extension-template-rs用の完全な実装
+
+use libduckdb_sys::*;
+use std::ffi::{CStr, CString, c_char, c_void};
+use std::ptr;
+
+// Iced GUI framework
 use iced::{
     Element, Theme, Length, Task,
     widget::{canvas, column, container, text},
 };
 use iced::widget::canvas::{Frame, Geometry, Path, Stroke};
 use iced::{Color, Point, Rectangle, Size, Pixels};
-use std::ffi::CStr;
-use std::os::raw::c_char;
+use serde_json;
+
+// ========================================
+// ChartData と ChartApp の定義
+// ========================================
 
 #[derive(Default, Clone)]
 pub struct ChartData {
@@ -76,120 +87,9 @@ impl ChartApp {
     }
 }
 
-// macOSのGCDのFFI定義
-#[cfg(target_os = "macos")]
-extern "C" {
-    fn dispatch_get_main_queue() -> *mut std::ffi::c_void;
-    fn dispatch_async_f(
-        queue: *mut std::ffi::c_void,
-        context: *mut std::ffi::c_void,
-        work: extern "C" fn(*mut std::ffi::c_void),
-    );
-}
-
-// メインスレッドで実行される関数
-#[cfg(target_os = "macos")]
-extern "C" fn run_chart_on_main(context: *mut std::ffi::c_void) {
-    unsafe {
-        let data = Box::from_raw(context as *mut ChartData);
-        
-        // メインスレッドなのでIcedを起動できる！
-        let _ = ChartApp::run(*data);
-    }
-}
-
-// FFI: C++から呼ばれる関数
-#[no_mangle]
-pub extern "C" fn chart_viewer_show_chart(
-    title: *const c_char,
-    x_data_json: *const c_char,
-    y_data_json: *const c_char,
-    chart_type: *const c_char,
-) -> i32 {
-    unsafe {
-        let title = match CStr::from_ptr(title).to_str() {
-            Ok(s) => s.to_string(),
-            Err(_) => return -1,
-        };
-        
-        let x_json = match CStr::from_ptr(x_data_json).to_str() {
-            Ok(s) => s,
-            Err(_) => return -1,
-        };
-        
-        let y_json = match CStr::from_ptr(y_data_json).to_str() {
-            Ok(s) => s,
-            Err(_) => return -1,
-        };
-        
-        let chart_type = match CStr::from_ptr(chart_type).to_str() {
-            Ok(s) => s.to_string(),
-            Err(_) => return -1,
-        };
-        
-        let x_data: Vec<String> = match serde_json::from_str(x_json) {
-            Ok(data) => data,
-            Err(_) => return -1,
-        };
-        
-        let y_data: Vec<f64> = match serde_json::from_str(y_json) {
-            Ok(data) => data,
-            Err(_) => return -1,
-        };
-        
-        let data = ChartData {
-            title,
-            x_data,
-            y_data,
-            chart_type,
-        };
-        
-        #[cfg(target_os = "macos")]
-        {
-            // メインスレッドにタスクを投げる
-            let queue = dispatch_get_main_queue();
-            let context = Box::into_raw(Box::new(data));
-            
-            dispatch_async_f(
-                queue,
-                context as *mut std::ffi::c_void,
-                run_chart_on_main,
-            );
-        }
-        
-        #[cfg(not(target_os = "macos"))]
-        {
-            // Linux/Windowsの場合は従来通り
-            eprintln!("dispatch_async is macOS only");
-            return -1;
-        }
-        
-        0
-    }
-}
-
-fn calculate_nice_max(max_value: f64) -> f64 {
-    if max_value <= 0.0 {
-        return 100.0;
-    }
-    
-    let magnitude = 10_f64.powf(max_value.log10().floor());
-    let normalized = max_value / magnitude;
-    
-    let nice_normalized = if normalized <= 1.0 {
-        1.0
-    } else if normalized <= 2.0 {
-        2.0
-    } else if normalized <= 2.5 {
-        2.5
-    } else if normalized <= 5.0 {
-        5.0
-    } else {
-        10.0
-    };
-    
-    nice_normalized * magnitude * 1.1
-}
+// ========================================
+// Canvas描画実装
+// ========================================
 
 impl canvas::Program<Message> for ChartApp {
     type State = ();
@@ -253,6 +153,10 @@ impl canvas::Program<Message> for ChartApp {
         vec![frame.into_geometry()]
     }
 }
+
+// ========================================
+// チャート描画メソッド（完全実装）
+// ========================================
 
 impl ChartApp {
     fn draw_axes(&self, frame: &mut Frame, bounds: Rectangle, padding: f32, y_max: f64) {
@@ -574,4 +478,207 @@ impl ChartApp {
             shaping: iced::widget::text::Shaping::default(),
         });
     }
+}
+
+fn calculate_nice_max(max_value: f64) -> f64 {
+    if max_value <= 0.0 {
+        return 100.0;
+    }
+    
+    let magnitude = 10_f64.powf(max_value.log10().floor());
+    let normalized = max_value / magnitude;
+    
+    let nice_normalized = if normalized <= 1.0 {
+        1.0
+    } else if normalized <= 2.0 {
+        2.0
+    } else if normalized <= 2.5 {
+        2.5
+    } else if normalized <= 5.0 {
+        5.0
+    } else {
+        10.0
+    };
+    
+    nice_normalized * magnitude * 1.1
+}
+
+// ========================================
+// DuckDB Extension API実装
+// ========================================
+
+// macOSのGCD FFI定義
+#[cfg(target_os = "macos")]
+extern "C" {
+    fn dispatch_get_main_queue() -> *mut c_void;
+    fn dispatch_async_f(
+        queue: *mut c_void,
+        context: *mut c_void,
+        work: extern "C" fn(*mut c_void),
+    );
+}
+
+// メインスレッドで実行される関数
+#[cfg(target_os = "macos")]
+extern "C" fn run_chart_on_main(context: *mut c_void) {
+    unsafe {
+        let data = Box::from_raw(context as *mut ChartData);
+        let _ = ChartApp::run(*data);
+    }
+}
+
+// DuckDB拡張のエントリポイント
+#[no_mangle]
+pub unsafe extern "C" fn chart_viewer_init(db: duckdb_database) {
+    let mut conn: duckdb_connection = ptr::null_mut();
+    if duckdb_connect(db, &mut conn) != DuckDBSuccess {
+        eprintln!("Failed to connect to database");
+        return;
+    }
+
+    register_chart_viewer_function(conn);
+    duckdb_disconnect(&mut conn);
+}
+
+// バージョン情報
+#[no_mangle]
+pub unsafe extern "C" fn chart_viewer_version() -> *const c_char {
+    duckdb_library_version()
+}
+
+// スカラー関数の実装
+unsafe extern "C" fn chart_viewer_scalar_func(
+    _info: duckdb_function_info,
+    input: duckdb_data_chunk,
+    output: duckdb_vector,
+) {
+    let input_count = duckdb_data_chunk_get_size(input);
+    
+    let title_vector = duckdb_data_chunk_get_vector(input, 0);
+    let x_data_vector = duckdb_data_chunk_get_vector(input, 1);
+    let y_data_vector = duckdb_data_chunk_get_vector(input, 2);
+    let chart_type_vector = duckdb_data_chunk_get_vector(input, 3);
+    
+    for i in 0..input_count {
+        let title_str = get_string_at(title_vector, i);
+        let x_data_str = get_string_at(x_data_vector, i);
+        let y_data_str = get_string_at(y_data_vector, i);
+        let chart_type_str = get_string_at(chart_type_vector, i);
+        
+        let result = process_chart_data(
+            title_str,
+            x_data_str,
+            y_data_str,
+            chart_type_str,
+        );
+        
+        let data = duckdb_vector_get_data(output) as *mut i32;
+        *data.add(i as usize) = result;
+    }
+}
+
+// ベクトルから文字列を取得
+unsafe fn get_string_at(vector: duckdb_vector, index: u64) -> String {
+    let data = duckdb_vector_get_data(vector) as *const duckdb_string_t;
+    let string_t = *data.add(index as usize);
+    
+    let str_data = if duckdb_string_is_inlined(string_t) {
+        string_t.value.inlined.inlined.as_ptr() as *const c_char
+    } else {
+        string_t.value.pointer.ptr as *const c_char
+    };
+    
+    CStr::from_ptr(str_data)
+        .to_str()
+        .unwrap_or("")
+        .to_string()
+}
+
+// チャートデータを処理
+fn process_chart_data(
+    title: String,
+    x_data_json: String,
+    y_data_json: String,
+    chart_type: String,
+) -> i32 {
+    let x_data: Vec<String> = match serde_json::from_str(&x_data_json) {
+        Ok(data) => data,
+        Err(e) => {
+            eprintln!("Failed to parse x_data: {}", e);
+            return -1;
+        }
+    };
+    
+    let y_data: Vec<f64> = match serde_json::from_str(&y_data_json) {
+        Ok(data) => data,
+        Err(e) => {
+            eprintln!("Failed to parse y_data: {}", e);
+            return -1;
+        }
+    };
+    
+    let data = ChartData {
+        title,
+        x_data,
+        y_data,
+        chart_type,
+    };
+    
+    #[cfg(target_os = "macos")]
+    {
+        unsafe {
+            let queue = dispatch_get_main_queue();
+            let context = Box::into_raw(Box::new(data));
+            
+            dispatch_async_f(
+                queue,
+                context as *mut c_void,
+                run_chart_on_main,
+            );
+        }
+        0
+    }
+    
+    #[cfg(not(target_os = "macos"))]
+    {
+        eprintln!("Chart viewer is currently only supported on macOS");
+        -1
+    }
+}
+
+// スカラー関数の登録
+unsafe fn register_chart_viewer_function(conn: duckdb_connection) {
+    let func_name = CString::new("chart_viewer_show_chart").unwrap();
+    
+    let mut func: duckdb_scalar_function = ptr::null_mut();
+    duckdb_create_scalar_function(&mut func);
+    
+    duckdb_scalar_function_set_name(func, func_name.as_ptr());
+    
+    for _ in 0..4 {
+        duckdb_scalar_function_add_parameter(
+            func, 
+            duckdb_create_logical_type(DUCKDB_TYPE_VARCHAR)
+        );
+    }
+    
+    duckdb_scalar_function_set_return_type(
+        func,
+        duckdb_create_logical_type(DUCKDB_TYPE_INTEGER)
+    );
+    
+    duckdb_scalar_function_set_function(func, Some(chart_viewer_scalar_func));
+    
+    let result = duckdb_register_scalar_function(conn, func);
+    
+    if result != DuckDBSuccess {
+        eprintln!("Failed to register chart_viewer_show_chart function");
+    }
+    
+    duckdb_destroy_scalar_function(&mut func);
+}
+
+// duckdb_string_tがインライン化されているかチェック
+unsafe fn duckdb_string_is_inlined(str: duckdb_string_t) -> bool {
+    str.value.inlined.length <= 12
 }
