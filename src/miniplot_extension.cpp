@@ -689,7 +689,7 @@ inline void Scatter3DChartWithTimestampAndPathFunction(DataChunk &args, Expressi
 inline void MiniplotScalarFun(DataChunk &args, ExpressionState &state, Vector &result) {
 	auto &name = args.data[0];
 	UnaryExecutor::Execute<string_t, string_t>(name, result, args.size(), [&](string_t name) {
-		std::string version_string = "Miniplot " + name.GetString();
+		std::string version_string = "Miniplot " + name.GetString() + " 🐥";
 		return StringVector::AddString(result, version_string);
 	});
 }
