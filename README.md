@@ -31,6 +31,16 @@ LOAD miniplot;
 
 That's it! No additional setup required.
 
+## Examples
+
+### Bar Chart
+
+![Bar Chart Example](images/bar_chart.png)
+
+### 3D Scatter Chart
+
+![3D Scatter Chart Example](images/3dscatter.png)
+
 ## Usage Examples
 
 ### Basic Charts
