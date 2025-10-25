@@ -1,4 +1,4 @@
-# Miniplot
+# Miniplot[Pending Now]
 
 Interactive chart visualization extension for DuckDB - faster than pandas with Plotly-like interactive charts, all from SQL.
 
