@@ -35,7 +35,7 @@ That's it! No additional setup required.
 
 ### Bar Chart
 
-![Bar Chart Example](images/bar_chart.png)
+![Bar Chart Example](images/barchart.png)
 
 ### 3D Scatter Chart
 
