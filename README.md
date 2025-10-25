@@ -1,32 +1,26 @@
 # Miniplot
 
-Interactive chart visualization extension for DuckDB - bringing pandas + matplotlib style data visualization directly to SQL, without leaving your database.
+Interactive chart visualization extension for DuckDB - faster than pandas with Plotly-like interactive charts, all from SQL.
 
 ## 🎯 Mission
 
-**"Replace pandas + matplotlib with just DuckDB"**
+**"One tool. One query. Instant visualization."**
 
-No more switching between pandas and matplotlib for data visualization.
+Replace multiple libraries (pandas, matplotlib, seaborn, plotly) with a single tool. No more context switching, no more complex workflows.
 
-#### One tool. One query. Instant visualization.
+- 📊 **Multiple chart types**: Bar, Line, Scatter, Area, and 3D Scatter charts
+- 🌐 **Browser-based rendering**: Charts open in your default web browser
+- 🔌 **Internet required**: Initial chart rendering requires connection (Plotly.js CDN)
 
-## ✨ What's New in v0.0.2
+## ✨ What's New in v0.0.3
 
-- 🔄 **Complete C++-only rewrite** - Removed Rust dependency for better compatibility
-- 🌐 **Browser-based rendering** - Charts open in your default browser
-- 📦 **Lightweight build** - Uses Plotly.js CDN (no large embedded libraries)
-- 🎨 **Interactive features** - Zoom, pan, hover tooltips, export to PNG
-- 🚀 **Worker thread compatible** - Works in DuckDB Community Extensions
-- ⚡ **Single binary** - No external dependencies at runtime
-
-## Features
-
-- 📊 **Multiple chart types**: Bar, Line, Scatter, and Area charts
-- 🖥️ **Browser-based rendering**: Charts open in your default web browser
-- 🚀 **Simple SQL interface**: Visualize data directly from SQL queries
-- 💻 **Cross-platform**: Works on macOS, Linux, and Windows
-- 🌐 **Internet required**: Initial chart rendering requires internet connection (Plotly.js loads from CDN, then cached by browser)
-- ✨ **Interactive**: Zoom, pan, hover, and export capabilities
+- 3D Scatter Charts - Visualize three-dimensional data with interactive 3D scatter plots
+- Timestamp Support - Add temporal dimension to 3D visualizations
+- File Output Control - Save charts to custom paths or `/tmp/` directory
+- Full Unicode Support - Complete support for Japanese and other non-ASCII characters
+- Flexible Output Options - Browser (default), `/tmp/`, or custom path
+- CSV Integration - Seamless data visualization from CSV files
+- Batch Processing - Generate multiple charts and export paths with `COPY TO`
 
 ## Installation
 
@@ -37,9 +31,11 @@ LOAD miniplot;
 
 That's it! No additional setup required.
 
-## Usage
+## Usage Examples
 
-### Bar Chart
+### Basic Charts
+
+#### Bar Chart
 
 ```sql
 SELECT bar_chart(
@@ -49,7 +45,7 @@ SELECT bar_chart(
 );
 ```
 
-### Line Chart
+#### Line Chart
 
 ```sql
 SELECT line_chart(
@@ -59,7 +55,7 @@ SELECT line_chart(
 );
 ```
 
-### Scatter Chart
+#### Scatter Chart
 
 ```sql
 SELECT scatter_chart(
@@ -69,7 +65,7 @@ SELECT scatter_chart(
 );
 ```
 
-### Area Chart
+#### Area Chart
 
 ```sql
 SELECT area_chart(
@@ -79,7 +75,86 @@ SELECT area_chart(
 );
 ```
 
-## Real-World Example
+### 3D Scatter Charts (New in v0.0.3)
+
+#### Basic 3D Scatter
+
+```sql
+-- Opens in browser
+SELECT scatter_3d_chart(
+    [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+    [2.0, 4.0, 1.0, 5.0, 3.0, 6.0],
+    [3.0, 1.0, 4.0, 2.0, 5.0, 3.5],
+    '3D Data Visualization'
+);
+```
+
+#### 3D Scatter with Timestamps
+
+```sql
+-- Add temporal dimension
+SELECT scatter_3d_chart(
+    [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+    [2.0, 4.0, 1.0, 5.0, 3.0, 6.0],
+    [3.0, 1.0, 4.0, 2.0, 5.0, 3.5],
+    ['2024-01-01 10:00', '2024-01-01 11:00', '2024-01-01 12:00',
+     '2024-01-01 13:00', '2024-01-01 14:00', '2024-01-01 15:00'],
+    'Time-Series 3D Scatter'
+);
+```
+
+### Output Control (New in v0.0.3)
+
+```sql
+-- Save to /tmp/ without opening browser
+SELECT bar_chart(
+    ['A', 'B', 'C'],
+    [10.0, 20.0, 15.0],
+    'Sample Chart',
+    'tmp'
+);
+
+-- Save to custom path
+SELECT line_chart(
+    ['Q1', 'Q2', 'Q3', 'Q4'],
+    [250.0, 320.0, 410.0, 380.0],
+    'Quarterly Report',
+    'reports/q4_sales.html'
+);
+
+-- Save 3D chart to specific location
+SELECT scatter_3d_chart(
+    [10.0, 20.0, 30.0, 40.0],
+    [15.0, 25.0, 20.0, 35.0],
+    [5.0, 10.0, 8.0, 12.0],
+    ['09:00', '12:00', '15:00', '18:00'],
+    'Sensor Data',
+    'data/sensor_3d.html'
+);
+```
+
+### Unicode Support (New in v0.0.3)
+
+```sql
+-- Japanese titles and labels
+SELECT bar_chart(
+    ['春', '夏', '秋', '冬'],
+    [15.0, 28.0, 18.0, 5.0],
+    '季節別平均気温（℃）'
+);
+
+-- Japanese data with timestamps
+SELECT scatter_3d_chart(
+    [10.0, 20.0, 30.0],
+    [15.0, 25.0, 20.0],
+    [5.0, 10.0, 8.0],
+    ['午前', '正午', '午後'],
+    '温度センサー',
+    'temp_sensor.html'
+);
+```
+
+### Working with Tables
 
 ```sql
 -- Create sample data
@@ -112,67 +187,70 @@ SELECT line_chart(
     'Stock Price Trend'
 )
 FROM stocks;
+
+-- Direct CSV visualization
+SELECT bar_chart(
+    list(month),
+    list(sales),
+    'Monthly Sales from CSV',
+    'output.html'
+) FROM read_csv('sales.csv');
 ```
 
-## How It Works
+### Advanced CSV Processing
 
-```
-SQL Query → Data Extraction → HTML Generation → Browser Opens → Interactive Chart
-```
+```sql
+-- Filter and visualize
+SELECT line_chart(
+    list(date ORDER BY date),
+    list(temperature ORDER BY date),
+    '2024 Temperature Trend',
+    'temp_2024.html'
+) FROM read_csv('weather.csv')
+WHERE date >= '2024-01-01' AND date < '2025-01-01';
 
-1. **SQL Query** → Execute chart function with your data
-2. **Data Extraction** → Extension processes your data
-3. **HTML Generation** → Creates HTML with Plotly.js CDN link
-4. **Browser Opens** → Opens in your default browser
-5. **Interactive Chart** → Zoom, pan, hover, export
-
-**Note**: Charts require internet connection on first use. After initial load, Plotly.js is cached by your browser and works offline.
-
-## Architecture
-
-### Simple and Clean
-
-```
-┌─────────────────────────────────┐
-│   DuckDB SQL Query              │
-│   SELECT bar_chart(...)         │
-└────────────┬────────────────────┘
-             ↓
-┌─────────────────────────────────┐
-│   Extension (C++)               │
-│   - Data extraction             │
-│   - HTML generation             │
-│   - Plotly.js CDN link          │
-└────────────┬────────────────────┘
-             ↓
-┌─────────────────────────────────┐
-│   Browser Opens                 │
-│   - Loads Plotly.js from CDN    │
-│   - Interactive chart           │
-│   - Caches for offline use      │
-└─────────────────────────────────┘
+-- Aggregate and visualize top 10
+SELECT bar_chart(
+    list(customer_name ORDER BY total_sales DESC),
+    list(total_sales ORDER BY total_sales DESC),
+    'Top 10 Customers',
+    'top_customers.html'
+) FROM (
+    SELECT customer_name, sum(sales) AS total_sales
+    FROM read_csv('customer_sales.csv')
+    GROUP BY customer_name
+    ORDER BY total_sales DESC
+    LIMIT 10
+);
 ```
 
-**No external dependencies. No configuration. Just install and use.**
+### Batch Chart Generation with COPY TO
 
-## Supported Chart Types
+```sql
+-- Generate single chart and save path
+COPY (
+    SELECT
+        'bar_chart' AS chart_type,
+        bar_chart(
+            ['A', 'B', 'C'],
+            [10.0, 20.0, 15.0],
+            'Sample Chart',
+            'output_bar.html'
+        ) AS file_path
+) TO 'chart_paths.csv' (HEADER, DELIMITER ',');
 
-| Function        | X Axis    | Y Axis   | Description       |
-| --------------- | --------- | -------- | ----------------- |
-| `bar_chart`     | VARCHAR[] | DOUBLE[] | Vertical bars     |
-| `line_chart`    | VARCHAR[] | DOUBLE[] | Line with markers |
-| `scatter_chart` | DOUBLE[]  | DOUBLE[] | Scatter points    |
-| `area_chart`    | VARCHAR[] | DOUBLE[] | Filled area       |
-
-## Interactive Features
-
-All charts include:
-
-- 🔍 **Zoom** - Click and drag to zoom into regions
-- 👆 **Pan** - Shift + drag to pan around
-- 📊 **Hover** - Hover over points to see values
-- 💾 **Export** - Download as PNG image
-- 🔄 **Reset** - Double-click to reset view
+-- Generate multiple charts and export paths
+COPY (
+    SELECT 'bar_chart' AS type,
+           bar_chart(['A','B','C'], [10,20,15], 'Bar', 'bar.html') AS path
+    UNION ALL
+    SELECT 'line_chart' AS type,
+           line_chart(['X','Y','Z'], [5,10,8], 'Line', 'line.html') AS path
+    UNION ALL
+    SELECT 'scatter_chart' AS type,
+           scatter_chart([1,2,3], [2,4,3], 'Scatter', 'scatter.html') AS path
+) TO 'all_charts.csv' (HEADER);
+```
 
 ## Requirements
 
@@ -195,7 +273,3 @@ MIT License - see [LICENSE](LICENSE) file
 - [Community Extensions](https://github.com/duckdb/community-extensions)
 - [Issue Tracker](https://github.com/nkwork9999/miniplot/issues)
 - [DuckDB Documentation](https://duckdb.org/docs/)
-
-```
-
-```

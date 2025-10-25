@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>主要都市人口</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; background: #f5f5f5; padding: 20px; }
+        .container { max-width: 1400px; margin: 0 auto; background: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        h1 { margin: 0 0 20px; color: #333; font-size: 28px; text-align: center; }
+        #chart { width: 100%; height: 600px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>主要都市人口</h1>
+        <div id="chart"></div>
+    </div>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <script>
+    var data = [{
+        x: ['東京', '大阪', '名古屋'],
+        y: [1395, 883, 233],
+        type: 'bar',
+        
+        marker: { color: 'rgb(59, 130, 246)', size: 10 },
+        line: { color: 'rgb(59, 130, 246)', width: 3 }
+    }];
+    var layout = {
+        xaxis: { showgrid: true, gridcolor: '#e5e5e5' },
+        yaxis: { title: 'Value', showgrid: true, gridcolor: '#e5e5e5' },
+        plot_bgcolor: '#fff',
+        paper_bgcolor: '#fff',
+        margin: { t: 40, r: 40, b: 60, l: 70 },
+        autosize: true
+    };
+    Plotly.newPlot('chart', data, layout, { responsive: true, displayModeBar: true });
+    window.addEventListener('resize', function() { Plotly.Plots.resize('chart'); });
+    </script>
+</body>
+</html>
