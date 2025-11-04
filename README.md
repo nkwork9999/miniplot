@@ -1,4 +1,4 @@
-# Miniplot[Pending Now]
+# Miniplot
 
 Interactive chart visualization extension for DuckDB - faster than pandas with Plotly-like interactive charts, all from SQL.
 
@@ -30,6 +30,46 @@ LOAD miniplot;
 ```
 
 That's it! No additional setup required.
+
+## 🚀 Easiest Example - 30 Seconds to Your First Chart
+
+**Step 1: Create `test.csv` in your local directory**
+
+```csv
+product,revenue
+iPhone,450
+MacBook,380
+iPad,290
+AirPods,185
+Watch,160
+```
+
+**Step 2: Open DuckDB CLI**
+
+```bash
+duckdb
+```
+
+**Step 3: Install and load miniplot**
+
+```sql
+INSTALL miniplot FROM community;
+LOAD miniplot;
+```
+
+**Step 4: Visualize!**
+
+```sql
+SELECT bar_chart(
+    list(product),
+    list(revenue),
+    'Product Revenue'
+) FROM 'test.csv';
+```
+
+**Result:** Interactive chart opens in your browser instantly! 🎉
+
+---
 
 ## Examples
 
