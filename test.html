@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Miniplot WASM Test</title>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial,
+          sans-serif;
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+        background: #f5f5f5;
+      }
+      h1 {
+        color: #333;
+      }
+      .status {
+        padding: 10px;
+        margin: 10px 0;
+        border-radius: 4px;
+        background: #e3f2fd;
+        border-left: 4px solid #2196f3;
+      }
+      .error {
+        background: #ffebee;
+        border-left-color: #f44336;
+        color: #c62828;
+      }
+      .success {
+        background: #e8f5e9;
+        border-left-color: #4caf50;
+        color: #2e7d32;
+      }
+      .chart-container {
+        background: white;
+        padding: 20px;
+        margin: 20px 0;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
+      iframe {
+        width: 100%;
+        height: 600px;
+        border: none;
+        border-radius: 4px;
+      }
+      button {
+        background: #2196f3;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 4px;
+        cursor: pointer;
+        margin: 5px;
+        font-size: 14px;
+      }
+      button:hover {
+        background: #1976d2;
+      }
+      button:disabled {
+        background: #ccc;
+        cursor: not-allowed;
+      }
+      .controls {
+        margin: 20px 0;
+      }
+      pre {
+        background: #263238;
+        color: #aed581;
+        padding: 15px;
+        border-radius: 4px;
+        overflow-x: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>🦆 Miniplot WASM Test</h1>
+
+    <div id="status" class="status">Initializing DuckDB-WASM...</div>
+
+    <div class="controls">
+      <button id="btn-bar" disabled>Bar Chart</button>
+      <button id="btn-line" disabled>Line Chart</button>
+      <button id="btn-scatter" disabled>Scatter Chart</button>
+      <button id="btn-area" disabled>Area Chart</button>
+      <button id="btn-3d" disabled>3D Scatter</button>
+    </div>
+
+    <div id="sql-display"></div>
+
+    <div class="chart-container">
+      <div id="chart-output">Chart will appear here...</div>
+    </div>
+
+    <script type="module">
+      import * as duckdb from "https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@latest/+esm";
+
+      let conn = null;
+
+      function updateStatus(message, type = "status") {
+        const statusEl = document.getElementById("status");
+        statusEl.textContent = message;
+        statusEl.className = type;
+      }
+
+      function showSQL(sql) {
+        const sqlDisplay = document.getElementById("sql-display");
+        sqlDisplay.innerHTML = `<pre>${sql}</pre>`;
+      }
+
+      function displayChart(html) {
+        const output = document.getElementById("chart-output");
+        output.innerHTML = "";
+
+        const iframe = document.createElement("iframe");
+        iframe.srcdoc = html;
+        output.appendChild(iframe);
+      }
+
+      async function init() {
+        try {
+          updateStatus("Loading DuckDB-WASM...");
+
+          // DuckDB-WASMの初期化
+          const JSDELIVR_BUNDLES = duckdb.getJsDelivrBundles();
+          const bundle = await duckdb.selectBundle(JSDELIVR_BUNDLES);
+
+          const worker_url = URL.createObjectURL(
+            new Blob([`importScripts("${bundle.mainWorker}");`], {
+              type: "text/javascript",
+            })
+          );
+
+          const worker = new Worker(worker_url);
+          const logger = new duckdb.ConsoleLogger();
+          const db = new duckdb.AsyncDuckDB(logger, worker);
+
+          await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+          URL.revokeObjectURL(worker_url);
+
+          updateStatus("Installing miniplot extension...");
+
+          conn = await db.connect();
+
+          // 拡張機能のインストール
+          try {
+            await conn.query("INSTALL miniplot FROM community");
+            await conn.query("LOAD miniplot");
+            updateStatus(
+              "✅ Miniplot extension loaded successfully!",
+              "success"
+            );
+          } catch (e) {
+            updateStatus(
+              "⚠️ Could not load from community. Error: " + e.message,
+              "error"
+            );
+            console.error("Extension load error:", e);
+            return;
+          }
+
+          // ボタンを有効化
+          document
+            .querySelectorAll("button")
+            .forEach((btn) => (btn.disabled = false));
+        } catch (error) {
+          updateStatus("❌ Error: " + error.message, "error");
+          console.error("Initialization error:", error);
+        }
+      }
+
+      async function runChart(type) {
+        if (!conn) {
+          alert("Database not initialized!");
+          return;
+        }
+
+        try {
+          let sql = "";
+
+          switch (type) {
+            case "bar":
+              sql = `SELECT bar_chart_html(
+                            ['Product A', 'Product B', 'Product C', 'Product D', 'Product E'],
+                            [150.0, 230.0, 180.0, 290.0, 210.0],
+                            'Product Sales'
+                        ) as html`;
+              break;
+
+            case "line":
+              sql = `SELECT line_chart_html(
+                            ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
+                            [5.2, 7.8, 12.5, 15.8, 20.3, 24.1],
+                            'Monthly Temperature (°C)'
+                        ) as html`;
+              break;
+
+            case "scatter":
+              sql = `SELECT scatter_chart_html(
+                            [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
+                            [2.5, 5.0, 7.5, 10.0, 12.5, 15.0, 17.5, 20.0],
+                            'X vs Y Correlation'
+                        ) as html`;
+              break;
+
+            case "area":
+              sql = `SELECT area_chart_html(
+                            ['Week1', 'Week2', 'Week3', 'Week4', 'Week5'],
+                            [1000.0, 1500.0, 1300.0, 1800.0, 2100.0],
+                            'Weekly Revenue'
+                        ) as html`;
+              break;
+
+            case "3d":
+              sql = `SELECT scatter_3d_chart_html(
+                            [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+                            [2.0, 4.0, 1.0, 5.0, 3.0, 6.0],
+                            [3.0, 1.0, 4.0, 2.0, 5.0, 3.5],
+                            '3D Data Visualization'
+                        ) as html`;
+              break;
+          }
+
+          showSQL(sql);
+          updateStatus("Executing query...");
+
+          const result = await conn.query(sql);
+          const rows = result.toArray();
+
+          if (rows.length > 0 && rows[0].html) {
+            displayChart(rows[0].html);
+            updateStatus("✅ Chart rendered successfully!", "success");
+          } else {
+            updateStatus("❌ No HTML returned from query", "error");
+          }
+        } catch (error) {
+          updateStatus("❌ Query error: " + error.message, "error");
+          console.error("Query error:", error);
+        }
+      }
+
+      // イベントリスナー
+      document
+        .getElementById("btn-bar")
+        .addEventListener("click", () => runChart("bar"));
+      document
+        .getElementById("btn-line")
+        .addEventListener("click", () => runChart("line"));
+      document
+        .getElementById("btn-scatter")
+        .addEventListener("click", () => runChart("scatter"));
+      document
+        .getElementById("btn-area")
+        .addEventListener("click", () => runChart("area"));
+      document
+        .getElementById("btn-3d")
+        .addEventListener("click", () => runChart("3d"));
+
+      // 初期化実行
+      init();
+    </script>
+  </body>
+</html>

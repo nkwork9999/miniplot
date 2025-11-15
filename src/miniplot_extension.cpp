@@ -681,6 +681,117 @@ inline void Scatter3DChartWithTimestampAndPathFunction(DataChunk &args, Expressi
 	Create3DChartWithTimestampAndPath(x_values, y_values, z_values, timestamps, title_str, output_path, result);
 }
 
+// ============================================
+// HTML返却関数 (WASM対応) - 2D Charts
+// ============================================
+
+inline void BarChartHTMLFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	auto x_strings = ExtractStringList(args.data[0], 0);
+	auto y_values = ExtractDoubleList(args.data[1], 0);
+	string title_str = args.data[2].GetValue(0).ToString();
+	
+	if (x_strings.size() != y_values.size()) {
+		throw InvalidInputException("x and y arrays must have the same length");
+	}
+	if (x_strings.empty()) {
+		throw InvalidInputException("Data arrays cannot be empty");
+	}
+	
+	string html_content = GenerateHTML(x_strings, y_values, title_str, "bar");
+	result.SetValue(0, Value(html_content));
+}
+
+inline void LineChartHTMLFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	auto x_strings = ExtractStringList(args.data[0], 0);
+	auto y_values = ExtractDoubleList(args.data[1], 0);
+	string title_str = args.data[2].GetValue(0).ToString();
+	
+	if (x_strings.size() != y_values.size()) {
+		throw InvalidInputException("x and y arrays must have the same length");
+	}
+	if (x_strings.empty()) {
+		throw InvalidInputException("Data arrays cannot be empty");
+	}
+	
+	string html_content = GenerateHTML(x_strings, y_values, title_str, "line");
+	result.SetValue(0, Value(html_content));
+}
+
+inline void ScatterChartHTMLFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	auto x_values = ExtractDoubleList(args.data[0], 0);
+	auto y_values = ExtractDoubleList(args.data[1], 0);
+	string title_str = args.data[2].GetValue(0).ToString();
+	
+	if (x_values.size() != y_values.size()) {
+		throw InvalidInputException("x and y arrays must have the same length");
+	}
+	if (x_values.empty()) {
+		throw InvalidInputException("Data arrays cannot be empty");
+	}
+
+	std::vector<string> x_strings;
+	for (double v : x_values) {
+		x_strings.push_back(std::to_string(v));
+	}
+	
+	string html_content = GenerateHTML(x_strings, y_values, title_str, "scatter");
+	result.SetValue(0, Value(html_content));
+}
+
+inline void AreaChartHTMLFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	auto x_strings = ExtractStringList(args.data[0], 0);
+	auto y_values = ExtractDoubleList(args.data[1], 0);
+	string title_str = args.data[2].GetValue(0).ToString();
+	
+	if (x_strings.size() != y_values.size()) {
+		throw InvalidInputException("x and y arrays must have the same length");
+	}
+	if (x_strings.empty()) {
+		throw InvalidInputException("Data arrays cannot be empty");
+	}
+	
+	string html_content = GenerateHTML(x_strings, y_values, title_str, "area");
+	result.SetValue(0, Value(html_content));
+}
+
+// ============================================
+// HTML返却関数 (WASM対応) - 3D Charts
+// ============================================
+
+inline void Scatter3DChartHTMLFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	auto x_values = ExtractDoubleList(args.data[0], 0);
+	auto y_values = ExtractDoubleList(args.data[1], 0);
+	auto z_values = ExtractDoubleList(args.data[2], 0);
+	string title_str = args.data[3].GetValue(0).ToString();
+	
+	if (x_values.size() != y_values.size() || x_values.size() != z_values.size()) {
+		throw InvalidInputException("x, y, and z arrays must have the same length");
+	}
+	if (x_values.empty()) {
+		throw InvalidInputException("Data arrays cannot be empty");
+	}
+	
+	string html_content = Generate3DScatterHTML(x_values, y_values, z_values, title_str);
+	result.SetValue(0, Value(html_content));
+}
+
+inline void Scatter3DChartHTMLWithTimestampFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	auto x_values = ExtractDoubleList(args.data[0], 0);
+	auto y_values = ExtractDoubleList(args.data[1], 0);
+	auto z_values = ExtractDoubleList(args.data[2], 0);
+	auto timestamps = ExtractStringList(args.data[3], 0);
+	string title_str = args.data[4].GetValue(0).ToString();
+	
+	if (x_values.size() != y_values.size() || x_values.size() != z_values.size() || x_values.size() != timestamps.size()) {
+		throw InvalidInputException("x, y, z, and timestamp arrays must have the same length");
+	}
+	if (x_values.empty()) {
+		throw InvalidInputException("Data arrays cannot be empty");
+	}
+	
+	string html_content = Generate3DScatterHTMLWithTimestamp(x_values, y_values, z_values, timestamps, title_str);
+	result.SetValue(0, Value(html_content));
+}
 
 // ============================================
 // Version functions
@@ -718,7 +829,7 @@ void MiniplotExtension::Load(ExtensionLoader &loader) {
 	                  MiniplotOpenSSLVersionFunction));
 
 	// ============================================
-	// 2D Charts with Overloading
+	// 2D Charts with Overloading (既存機能)
 	// ============================================
 	
 	// Bar Chart
@@ -770,7 +881,7 @@ void MiniplotExtension::Load(ExtensionLoader &loader) {
 	    LogicalType::VARCHAR, AreaChartWithPathFunction));
 
 	// ============================================
-	// 3D Charts with Overloading
+	// 3D Charts with Overloading (既存機能)
 	// ============================================
 	
 	// 3D Scatter (no timestamp)
@@ -800,8 +911,46 @@ void MiniplotExtension::Load(ExtensionLoader &loader) {
 	     LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::VARCHAR),
 	     LogicalType::VARCHAR, LogicalType::VARCHAR},
 	    LogicalType::VARCHAR, Scatter3DChartWithTimestampAndPathFunction));
-		}
+
 	// ============================================
+	// HTML返却関数 (WASM対応の新機能)
+	// ============================================
+	
+	// 2D Charts - HTML版
+	loader.RegisterFunction(ScalarFunction(
+	    "bar_chart_html",
+	    {LogicalType::LIST(LogicalType::VARCHAR), LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR},
+	    LogicalType::VARCHAR, BarChartHTMLFunction));
+	
+	loader.RegisterFunction(ScalarFunction(
+	    "line_chart_html",
+	    {LogicalType::LIST(LogicalType::VARCHAR), LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR},
+	    LogicalType::VARCHAR, LineChartHTMLFunction));
+	
+	loader.RegisterFunction(ScalarFunction(
+	    "scatter_chart_html",
+	    {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR},
+	    LogicalType::VARCHAR, ScatterChartHTMLFunction));
+	
+	loader.RegisterFunction(ScalarFunction(
+	    "area_chart_html",
+	    {LogicalType::LIST(LogicalType::VARCHAR), LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR},
+	    LogicalType::VARCHAR, AreaChartHTMLFunction));
+
+	// 3D Charts - HTML版
+	loader.RegisterFunction(ScalarFunction(
+	    "scatter_3d_chart_html",
+	    {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::DOUBLE), 
+	     LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR},
+	    LogicalType::VARCHAR, Scatter3DChartHTMLFunction));
+	
+	loader.RegisterFunction(ScalarFunction(
+	    "scatter_3d_chart_html",
+	    {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::DOUBLE), 
+	     LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::VARCHAR),
+	     LogicalType::VARCHAR},
+	    LogicalType::VARCHAR, Scatter3DChartHTMLWithTimestampFunction));
+}
 
 std::string MiniplotExtension::Name() {
 	return "miniplot";
@@ -839,6 +988,10 @@ DUCKDB_EXTENSION_API void miniplot_init(duckdb::DatabaseInstance &db) {
 	    duckdb::MiniplotOpenSSLVersionFunction));
 	catalog.CreateFunction(*con.context, miniplot_openssl_func);
 
+	// ============================================
+	// 既存の2D Charts関数
+	// ============================================
+	
 	// 2D Charts - 3 args (browser mode)
 	duckdb::CreateScalarFunctionInfo bar_chart_func_3(
 	    duckdb::ScalarFunction("bar_chart",
@@ -901,6 +1054,10 @@ DUCKDB_EXTENSION_API void miniplot_init(duckdb::DatabaseInstance &db) {
 	                           duckdb::LogicalType::VARCHAR, duckdb::AreaChartWithPathFunction));
 	catalog.CreateFunction(*con.context, area_chart_func_4);
 
+	// ============================================
+	// 既存の3D Charts関数
+	// ============================================
+
 	// 3D Scatter Chart - 4 args (browser, no timestamp)
 	duckdb::CreateScalarFunctionInfo scatter_3d_chart_func_4(
 	    duckdb::ScalarFunction("scatter_3d_chart",
@@ -942,6 +1099,63 @@ DUCKDB_EXTENSION_API void miniplot_init(duckdb::DatabaseInstance &db) {
 	                            duckdb::LogicalType::VARCHAR, duckdb::LogicalType::VARCHAR},
 	                           duckdb::LogicalType::VARCHAR, duckdb::Scatter3DChartWithTimestampAndPathFunction));
 	catalog.CreateFunction(*con.context, scatter_3d_chart_timestamp_func_6);
+
+	// ============================================
+	// 新規: HTML返却関数 (WASM対応)
+	// ============================================
+	
+	// 2D Charts - HTML版
+	duckdb::CreateScalarFunctionInfo bar_chart_html_func(
+	    duckdb::ScalarFunction("bar_chart_html",
+	                           {duckdb::LogicalType::LIST(duckdb::LogicalType::VARCHAR),
+	                            duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE), 
+	                            duckdb::LogicalType::VARCHAR},
+	                           duckdb::LogicalType::VARCHAR, duckdb::BarChartHTMLFunction));
+	catalog.CreateFunction(*con.context, bar_chart_html_func);
+	
+	duckdb::CreateScalarFunctionInfo line_chart_html_func(
+	    duckdb::ScalarFunction("line_chart_html",
+	                           {duckdb::LogicalType::LIST(duckdb::LogicalType::VARCHAR),
+	                            duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE), 
+	                            duckdb::LogicalType::VARCHAR},
+	                           duckdb::LogicalType::VARCHAR, duckdb::LineChartHTMLFunction));
+	catalog.CreateFunction(*con.context, line_chart_html_func);
+	
+	duckdb::CreateScalarFunctionInfo scatter_chart_html_func(
+	    duckdb::ScalarFunction("scatter_chart_html",
+	                           {duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE),
+	                            duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE), 
+	                            duckdb::LogicalType::VARCHAR},
+	                           duckdb::LogicalType::VARCHAR, duckdb::ScatterChartHTMLFunction));
+	catalog.CreateFunction(*con.context, scatter_chart_html_func);
+	
+	duckdb::CreateScalarFunctionInfo area_chart_html_func(
+	    duckdb::ScalarFunction("area_chart_html",
+	                           {duckdb::LogicalType::LIST(duckdb::LogicalType::VARCHAR),
+	                            duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE), 
+	                            duckdb::LogicalType::VARCHAR},
+	                           duckdb::LogicalType::VARCHAR, duckdb::AreaChartHTMLFunction));
+	catalog.CreateFunction(*con.context, area_chart_html_func);
+
+	// 3D Charts - HTML版
+	duckdb::CreateScalarFunctionInfo scatter_3d_chart_html_func(
+	    duckdb::ScalarFunction("scatter_3d_chart_html",
+	                           {duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE),
+	                            duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE),
+	                            duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE),
+	                            duckdb::LogicalType::VARCHAR},
+	                           duckdb::LogicalType::VARCHAR, duckdb::Scatter3DChartHTMLFunction));
+	catalog.CreateFunction(*con.context, scatter_3d_chart_html_func);
+	
+	duckdb::CreateScalarFunctionInfo scatter_3d_chart_html_timestamp_func(
+	    duckdb::ScalarFunction("scatter_3d_chart_html",
+	                           {duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE),
+	                            duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE),
+	                            duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE),
+	                            duckdb::LogicalType::LIST(duckdb::LogicalType::VARCHAR),
+	                            duckdb::LogicalType::VARCHAR},
+	                           duckdb::LogicalType::VARCHAR, duckdb::Scatter3DChartHTMLWithTimestampFunction));
+	catalog.CreateFunction(*con.context, scatter_3d_chart_html_timestamp_func);
 
 	con.Commit();
 }
