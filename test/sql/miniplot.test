@@ -21,3 +21,24 @@ query I
 SELECT miniplot_openssl_version('Michael') ILIKE 'Miniplot Michael, my linked OpenSSL version is OpenSSL%';
 ----
 true
+
+# Every input row produces its own HTML, with titles escaped as HTML text.
+query I
+SELECT count(*) FROM (SELECT bar_chart_html(['a'], [i::DOUBLE], 'row-' || i) AS html FROM range(4) t(i)) WHERE html LIKE '%row-%';
+----
+4
+
+query I
+SELECT contains(bar_chart_html(['a'], [1.0], '<b>&title'), '<title>&lt;b&gt;&amp;title</title>');
+----
+true
+
+statement error
+SELECT bar_chart_html(['a', NULL], [1.0, 2.0], 'null input');
+----
+Chart arrays cannot contain NULL elements
+
+statement error
+SELECT bar_chart_html(['a'], ['NaN'::DOUBLE], 'non-finite input');
+----
+Chart values must be finite
