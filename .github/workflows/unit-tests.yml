@@ -27,7 +27,7 @@ jobs:
         run: |
           git submodule update --init --depth 1 duckdb
           cmake -S duckdb -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_EXTENSIONS_ONLY=ON -DEXTENSION_STATIC_BUILD=OFF \
+            -DEXTENSION_STATIC_BUILD=ON -DBUILD_UNITTESTS=OFF -DBUILD_SHELL=OFF \
             -DDUCKDB_EXTENSION_CONFIGS="$PWD/extension_config.cmake" -DOVERRIDE_GIT_DESCRIBE=v1.5.6
           cmake --build build/release --target miniplot_loadable_extension -j 2
       - name: Verify SQL, JavaScript inputs, file output and metadata
