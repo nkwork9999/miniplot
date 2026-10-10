@@ -4,7 +4,7 @@
 name: Main Extension Distribution Pipeline
 on:
   push:
-    branches: [main]
+    branches: [Cpp_only]
   pull_request:
   workflow_dispatch:
 
@@ -24,17 +24,17 @@ jobs:
 
   duckdb-stable-build:
     name: Build extension binaries
-    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.3.2
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.5-variegata
     with:
-      duckdb_version: v1.3.2
-      ci_tools_version: v1.3.2
+      duckdb_version: v1.5.6
+      ci_tools_version: v1.5-variegata
       extension_name: miniplot
 
   code-quality-check:
     name: Code Quality Check
-    uses: duckdb/extension-ci-tools/.github/workflows/_extension_code_quality.yml@main
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_code_quality.yml@v1.5-variegata
     with:
-      duckdb_version: v1.3.2
-      ci_tools_version: main
+      duckdb_version: v1.5.6
+      ci_tools_version: v1.5-variegata
       extension_name: miniplot
       format_checks: 'format;tidy'

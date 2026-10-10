@@ -83,6 +83,76 @@ SELECT bar_chart(
 
 ## Usage Examples
 
+### Custom Plotly JSON (#3)
+
+`plotly_new(data, layout [, config [, output_path]])` passes a JSON array of trace
+objects and JSON layout/config objects to `Plotly.newPlot`. Omitted `config`
+defaults to `{}`. Use `'tmp'` or a custom output path to save without opening the
+browser; omitting the path opens the generated file. The return value is the
+file path. `plotly_new_html(data, layout [, config])` returns the HTML document
+without writing a file or opening a browser.
+
+```sql
+SELECT plotly_new(
+    '[{"x":[1,2,3],"y":[3,1,4],"type":"scatter","name":"Observed"},
+      {"x":[1,2,3],"y":[2,2,3],"type":"scatter","name":"Expected"}]',
+    '{"title":{"text":"Comparison"},"xaxis":{"title":"Day"},"showlegend":true}',
+    '{"responsive":true,"displayModeBar":false}',
+    'tmp'
+);
+
+-- Build JSON from DuckDB lists and structs instead of assembling JSON strings.
+SELECT plotly_new_html(
+    to_json([{'x': [1,2], 'y': [3,4], 'type': 'bar', 'name': 'Sales'}]),
+    to_json({'title': {'text': 'Sales'}, 'showlegend': true})
+);
+```
+
+Strings containing malformed JSON, non-object traces, or non-object layout/config
+are rejected by SQL. SQL `NULL` arguments return `NULL`. Plotly handles the
+individual trace/layout options; this extension validates the JSON and its top
+level shapes, not every Plotly option. Strings are escaped before embedding in
+HTML, including `</script>` text. Rendering uses the existing Plotly.js 2.27.0 CDN.
+
+### Dates and timestamps on 2D scatter axes (#4)
+
+Both `scatter_chart` and `scatter_chart_html` accept `DOUBLE[]`, `DATE[]`,
+`TIMESTAMP[]`, or `TIMESTAMPTZ[]` on either axis, including two date/time axes.
+Numeric axes remain numeric; date/time axes explicitly use Plotly's date scale.
+
+```sql
+SELECT scatter_chart(
+    [TIMESTAMP '2026-01-01 09:00:00', TIMESTAMP '2026-01-01 10:30:00'],
+    [12.5, 15.0],
+    'Sensor readings',
+    'tmp'
+);
+
+SELECT scatter_chart_html([1.0, 2.0], [DATE '2026-01-01', DATE '2026-01-03'], 'Dates');
+```
+
+`TIMESTAMP` preserves wall-clock fields; `TIMESTAMPTZ` instants are displayed in
+UTC, independent of the DuckDB session time zone. Cast timestamp precision
+variants explicitly to `TIMESTAMP[]` when needed. Plotly's date display precision
+is separate from DuckDB's timestamp precision. Arrays must be nonempty, have
+matching lengths, and contain no NULL or infinite values; SQL NULL arguments
+return NULL.
+
+### Discover functions through SQL (#5)
+
+Every overload, including HTML variants and the diagnostic functions, provides
+real argument names, a description, a runnable example and a `visualization`
+category through DuckDB's function catalog:
+
+```sql
+SELECT function_name, parameters, parameter_types, description, examples
+FROM duckdb_functions()
+WHERE function_name IN ('plotly_new', 'plotly_new_html', 'scatter_chart', 'scatter_chart_html');
+```
+
+Functions that write files or launch a browser are marked as having side effects.
+The `*_html` functions are pure and support `TRY(...)` for invalid row inputs.
+
 ### Basic Charts
 
 #### Bar Chart

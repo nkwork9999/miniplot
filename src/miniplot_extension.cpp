@@ -9,6 +9,9 @@
 #include "duckdb/main/connection.hpp"
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/parser/parsed_data/create_scalar_function_info.hpp"
+#include "duckdb/common/types/date.hpp"
+#include "duckdb/common/types/timestamp.hpp"
+#include "yyjson.hpp"
 
 #include <openssl/opensslv.h>
 
@@ -24,6 +27,7 @@
 #include <iomanip>
 #include <limits>
 #include <locale>
+#include <memory>
 
 #ifdef _WIN32
 #include <process.h>
@@ -48,9 +52,7 @@ static std::vector<string> ExtractStringList(const Vector &list_vector, idx_t ro
 			if (children[i].IsNull()) {
 				throw InvalidInputException("Chart arrays cannot contain NULL elements");
 			}
-			{
-				result.push_back(children[i].ToString());
-			}
+			{ result.push_back(children[i].ToString()); }
 		}
 	} catch (const std::exception &e) {
 		throw InvalidInputException("Failed to extract string list: %s", e.what());
@@ -133,6 +135,164 @@ static string ToLowerCase(const string &str) {
 	return lower;
 }
 
+// All file-producing functions share the existing browser/tmp/custom-path contract.
+static void SaveChartHTML(const string &html_content, const string &output_path_arg, Vector &result, idx_t row_idx) {
+	const bool open_browser = output_path_arg.empty();
+	const string html_path =
+	    open_browser || ToLowerCase(output_path_arg) == "tmp" ? GenerateSafeFilename() : output_path_arg;
+	if (html_path.find('\0') != string::npos) {
+		throw InvalidInputException("Chart output path cannot contain NUL bytes");
+	}
+	std::ofstream file(html_path);
+	if (!file.is_open()) {
+		throw IOException("Failed to create chart file: %s", html_path);
+	}
+	file << html_content;
+	file.close();
+	if (!file) {
+		throw IOException("Failed to write chart file: %s", html_path);
+	}
+	if (open_browser) {
+		OpenInBrowser(html_path);
+	}
+	result.SetValue(row_idx, Value(html_path));
+}
+
+static bool RowHasNull(DataChunk &args, idx_t row) {
+	for (idx_t col = 0; col < args.ColumnCount(); col++) {
+		if (args.data[col].GetValue(row).IsNull()) {
+			return true;
+		}
+	}
+	return false;
+}
+
+static void ValidatePlotlyJSON(const string &json, const char *argument, bool is_data) {
+	using namespace duckdb_yyjson;
+	std::unique_ptr<yyjson_doc, decltype(&yyjson_doc_free)> doc(yyjson_read(json.data(), json.size(), 0),
+	                                                            yyjson_doc_free);
+	if (!doc) {
+		throw InvalidInputException("plotly_new: %s must be valid JSON", argument);
+	}
+	auto root = yyjson_doc_get_root(doc.get());
+	if (is_data) {
+		if (!yyjson_is_arr(root)) {
+			throw InvalidInputException("plotly_new: data must be a JSON array of trace objects");
+		}
+		size_t idx, max;
+		yyjson_val *trace;
+		yyjson_arr_foreach(root, idx, max, trace) {
+			if (!yyjson_is_obj(trace)) {
+				throw InvalidInputException("plotly_new: each data entry must be a JSON trace object");
+			}
+		}
+	} else if (!yyjson_is_obj(root)) {
+		throw InvalidInputException("plotly_new: %s must be a JSON object", argument);
+	}
+}
+
+template <bool RETURN_HTML>
+static void PlotlyNewFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	result.SetVectorType(VectorType::FLAT_VECTOR);
+	for (idx_t row = 0; row < args.size(); row++) {
+		if (RowHasNull(args, row)) {
+			result.SetValue(row, Value());
+			continue;
+		}
+		auto data = args.data[0].GetValue(row).ToString();
+		auto layout = args.data[1].GetValue(row).ToString();
+		auto config = args.ColumnCount() >= 3 ? args.data[2].GetValue(row).ToString() : "{}";
+		ValidatePlotlyJSON(data, "data", true);
+		ValidatePlotlyJSON(layout, "layout", false);
+		ValidatePlotlyJSON(config, "config", false);
+		auto html = GeneratePlotlyHTML(data, layout, config);
+		if (RETURN_HTML) {
+			result.SetValue(row, Value(html));
+		} else {
+			auto path = args.ColumnCount() == 4 ? args.data[3].GetValue(row).ToString() : "";
+			SaveChartHTML(html, path, result, row);
+		}
+	}
+}
+
+static string ScatterAxisJSON(const Value &values, bool &is_date) {
+	const auto &children = ListValue::GetChildren(values);
+	auto type = ListType::GetChildType(values.type()).id();
+	is_date = type != LogicalTypeId::DOUBLE;
+	string json = "[";
+	for (idx_t i = 0; i < children.size(); i++) {
+		const auto &value = children[i];
+		if (value.IsNull()) {
+			throw InvalidInputException("Chart arrays cannot contain NULL elements");
+		}
+		if (i) {
+			json += ',';
+		}
+		if (type == LogicalTypeId::DOUBLE) {
+			auto number = value.GetValue<double>();
+			if (!std::isfinite(number)) {
+				throw InvalidInputException("Chart values must be finite");
+			}
+			json += NumberLabel(number);
+		} else {
+			string label;
+			if (type == LogicalTypeId::DATE) {
+				auto date = DateValue::Get(value);
+				if (!Date::IsFinite(date)) {
+					throw InvalidInputException("Chart dates must be finite");
+				}
+				label = Date::ToString(date);
+			} else {
+				auto timestamp = type == LogicalTypeId::TIMESTAMP_TZ ? timestamp_t(TimestampTZValue::Get(value).value)
+				                                                     : TimestampValue::Get(value);
+				if (!Timestamp::IsFinite(timestamp)) {
+					throw InvalidInputException("Chart timestamps must be finite");
+				}
+				// TIMESTAMPTZ is an instant: present it in UTC on Plotly's date axis.
+				// TIMESTAMP is a wall-clock value and keeps its original fields.
+				label = Timestamp::ToString(timestamp);
+			}
+			json += QuoteJSON(label);
+		}
+	}
+	return json + ']';
+}
+
+template <bool RETURN_HTML>
+static void ScatterChartExecute(DataChunk &args, Vector &result) {
+	result.SetVectorType(VectorType::FLAT_VECTOR);
+	for (idx_t row = 0; row < args.size(); row++) {
+		if (RowHasNull(args, row)) {
+			result.SetValue(row, Value());
+			continue;
+		}
+		auto x = args.data[0].GetValue(row);
+		auto y = args.data[1].GetValue(row);
+		const auto count = ListValue::GetChildren(x).size();
+		if (count != ListValue::GetChildren(y).size()) {
+			throw InvalidInputException("x and y arrays must have the same length");
+		}
+		if (!count) {
+			throw InvalidInputException("Data arrays cannot be empty");
+		}
+		bool x_date, y_date;
+		auto x_json = ScatterAxisJSON(x, x_date);
+		auto y_json = ScatterAxisJSON(y, y_date);
+		auto title = args.data[2].GetValue(row).ToString();
+		auto data = "[{\"type\":\"scatter\",\"mode\":\"markers\",\"x\":" + x_json + ",\"y\":" + y_json + "}]";
+		auto layout = "{\"title\":{\"text\":" + QuoteJSON(title) + "},\"xaxis\":{\"type\":\"" +
+		              (x_date ? "date" : "linear") + "\"},\"yaxis\":{\"type\":\"" + (y_date ? "date" : "linear") +
+		              "\"}}";
+		auto html = GeneratePlotlyHTML(data, layout, "{\"responsive\":true}", title);
+		if (RETURN_HTML) {
+			result.SetValue(row, Value(html));
+		} else {
+			auto path = args.ColumnCount() == 4 ? args.data[3].GetValue(row).ToString() : "";
+			SaveChartHTML(html, path, result, row);
+		}
+	}
+}
+
 // Generic chart creation with path control
 static void CreateChartWithPath(const std::vector<string> &x_data, const std::vector<double> &y_data,
                                 const string &title, const string &chart_type, const string &output_path_arg,
@@ -145,38 +305,7 @@ static void CreateChartWithPath(const std::vector<string> &x_data, const std::ve
 	}
 
 	string html_content = GenerateHTML(x_data, y_data, title, chart_type);
-	string html_path;
-	bool open_browser = false;
-
-	// Check if output_path_arg is "tmp" (case-insensitive)
-	if (ToLowerCase(output_path_arg) == "tmp") {
-		html_path = GenerateSafeFilename();
-		open_browser = false;
-	} else if (output_path_arg.empty()) {
-		// Empty string means browser mode
-		html_path = GenerateSafeFilename();
-		open_browser = true;
-	} else {
-		// Custom path specified
-		html_path = output_path_arg;
-		open_browser = false;
-	}
-
-	std::ofstream file(html_path);
-	if (!file.is_open()) {
-		throw IOException("Failed to create chart file: %s", html_path);
-	}
-	file << html_content;
-	file.close();
-	if (!file) {
-		throw IOException("Failed to write chart file: %s", html_path);
-	}
-
-	if (open_browser) {
-		OpenInBrowser(html_path);
-	}
-
-	result.SetValue(row_idx, Value(html_path));
+	SaveChartHTML(html_content, output_path_arg, result, row_idx);
 }
 
 // Generic 3D chart creation with path control
@@ -191,35 +320,7 @@ static void Create3DChartWithPath(const std::vector<double> &x_data, const std::
 	}
 
 	string html_content = Generate3DScatterHTML(x_data, y_data, z_data, title);
-	string html_path;
-	bool open_browser = false;
-
-	if (ToLowerCase(output_path_arg) == "tmp") {
-		html_path = GenerateSafeFilename();
-		open_browser = false;
-	} else if (output_path_arg.empty()) {
-		html_path = GenerateSafeFilename();
-		open_browser = true;
-	} else {
-		html_path = output_path_arg;
-		open_browser = false;
-	}
-
-	std::ofstream file(html_path);
-	if (!file.is_open()) {
-		throw IOException("Failed to create chart file: %s", html_path);
-	}
-	file << html_content;
-	file.close();
-	if (!file) {
-		throw IOException("Failed to write chart file: %s", html_path);
-	}
-
-	if (open_browser) {
-		OpenInBrowser(html_path);
-	}
-
-	result.SetValue(row_idx, Value(html_path));
+	SaveChartHTML(html_content, output_path_arg, result, row_idx);
 }
 
 // Generic 3D chart with timestamp creation with path control
@@ -235,35 +336,7 @@ static void Create3DChartWithTimestampAndPath(const std::vector<double> &x_data,
 	}
 
 	string html_content = Generate3DScatterHTMLWithTimestamp(x_data, y_data, z_data, timestamps, title);
-	string html_path;
-	bool open_browser = false;
-
-	if (ToLowerCase(output_path_arg) == "tmp") {
-		html_path = GenerateSafeFilename();
-		open_browser = false;
-	} else if (output_path_arg.empty()) {
-		html_path = GenerateSafeFilename();
-		open_browser = true;
-	} else {
-		html_path = output_path_arg;
-		open_browser = false;
-	}
-
-	std::ofstream file(html_path);
-	if (!file.is_open()) {
-		throw IOException("Failed to create chart file: %s", html_path);
-	}
-	file << html_content;
-	file.close();
-	if (!file) {
-		throw IOException("Failed to write chart file: %s", html_path);
-	}
-
-	if (open_browser) {
-		OpenInBrowser(html_path);
-	}
-
-	result.SetValue(row_idx, Value(html_path));
+	SaveChartHTML(html_content, output_path_arg, result, row_idx);
 }
 
 // ============================================
@@ -315,30 +388,7 @@ inline void LineChartFunction(DataChunk &args, ExpressionState &state, Vector &r
 }
 
 inline void ScatterChartFunction(DataChunk &args, ExpressionState &state, Vector &result) {
-	result.SetVectorType(VectorType::FLAT_VECTOR);
-	for (idx_t row = 0; row < args.size(); row++) {
-		bool any_null = false;
-		for (idx_t col = 0; col < args.ColumnCount(); col++) {
-			if (args.data[col].GetValue(row).IsNull()) {
-				any_null = true;
-				break;
-			}
-		}
-		if (any_null) {
-			result.SetValue(row, Value());
-			continue;
-		}
-
-		auto x_values = ExtractDoubleList(args.data[0], row);
-		auto y_values = ExtractDoubleList(args.data[1], row);
-		string title_str = args.data[2].GetValue(row).ToString();
-
-		std::vector<string> x_strings;
-		for (double v : x_values) {
-			x_strings.push_back(NumberLabel(v));
-		}
-		CreateChartWithPath(x_strings, y_values, title_str, "scatter", "", result, row);
-	}
+	ScatterChartExecute<false>(args, result);
 }
 
 inline void AreaChartFunction(DataChunk &args, ExpressionState &state, Vector &result) {
@@ -414,31 +464,7 @@ inline void LineChartWithPathFunction(DataChunk &args, ExpressionState &state, V
 }
 
 inline void ScatterChartWithPathFunction(DataChunk &args, ExpressionState &state, Vector &result) {
-	result.SetVectorType(VectorType::FLAT_VECTOR);
-	for (idx_t row = 0; row < args.size(); row++) {
-		bool any_null = false;
-		for (idx_t col = 0; col < args.ColumnCount(); col++) {
-			if (args.data[col].GetValue(row).IsNull()) {
-				any_null = true;
-				break;
-			}
-		}
-		if (any_null) {
-			result.SetValue(row, Value());
-			continue;
-		}
-
-		auto x_values = ExtractDoubleList(args.data[0], row);
-		auto y_values = ExtractDoubleList(args.data[1], row);
-		string title_str = args.data[2].GetValue(row).ToString();
-		string output_path = args.data[3].GetValue(row).ToString();
-
-		std::vector<string> x_strings;
-		for (double v : x_values) {
-			x_strings.push_back(NumberLabel(v));
-		}
-		CreateChartWithPath(x_strings, y_values, title_str, "scatter", output_path, result, row);
-	}
+	ScatterChartExecute<false>(args, result);
 }
 
 inline void AreaChartWithPathFunction(DataChunk &args, ExpressionState &state, Vector &result) {
@@ -644,39 +670,7 @@ inline void LineChartHTMLFunction(DataChunk &args, ExpressionState &state, Vecto
 }
 
 inline void ScatterChartHTMLFunction(DataChunk &args, ExpressionState &state, Vector &result) {
-	result.SetVectorType(VectorType::FLAT_VECTOR);
-	for (idx_t row = 0; row < args.size(); row++) {
-		bool any_null = false;
-		for (idx_t col = 0; col < args.ColumnCount(); col++) {
-			if (args.data[col].GetValue(row).IsNull()) {
-				any_null = true;
-				break;
-			}
-		}
-		if (any_null) {
-			result.SetValue(row, Value());
-			continue;
-		}
-
-		auto x_values = ExtractDoubleList(args.data[0], row);
-		auto y_values = ExtractDoubleList(args.data[1], row);
-		string title_str = args.data[2].GetValue(row).ToString();
-
-		if (x_values.size() != y_values.size()) {
-			throw InvalidInputException("x and y arrays must have the same length");
-		}
-		if (x_values.empty()) {
-			throw InvalidInputException("Data arrays cannot be empty");
-		}
-
-		std::vector<string> x_strings;
-		for (double v : x_values) {
-			x_strings.push_back(NumberLabel(v));
-		}
-
-		string html_content = GenerateHTML(x_strings, y_values, title_str, "scatter");
-		result.SetValue(row, Value(html_content));
-	}
+	ScatterChartExecute<true>(args, result);
 }
 
 inline void AreaChartHTMLFunction(DataChunk &args, ExpressionState &state, Vector &result) {
@@ -805,134 +799,126 @@ inline void MiniplotOpenSSLVersionFunction(DataChunk &args, ExpressionState &sta
 // Extension Load
 // ============================================
 
+// Use the same documented registrations for both extension entry points.
+static vector<CreateScalarFunctionInfo> MiniplotFunctions() {
+	vector<CreateScalarFunctionInfo> functions;
+	auto add = [&](const string &name, vector<LogicalType> types, scalar_function_t callback, vector<string> parameters,
+	               const string &description, const string &example, bool writes_file, bool can_throw = true) {
+		ScalarFunction function(name, types, LogicalType::VARCHAR, callback);
+		if (writes_file) {
+			function.SetVolatile();
+		}
+		if (can_throw) {
+			function.SetFallible();
+		}
+		CreateScalarFunctionInfo info(std::move(function));
+		info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+		FunctionDescription doc;
+		doc.parameter_types = std::move(types);
+		doc.parameter_names = std::move(parameters);
+		doc.description = description;
+		doc.examples = {example};
+		doc.categories = {"visualization"};
+		info.descriptions.push_back(std::move(doc));
+		functions.push_back(std::move(info));
+	};
+	const auto text = LogicalType::VARCHAR;
+	const auto labels = LogicalType::LIST(text);
+	const auto numbers = LogicalType::LIST(LogicalType::DOUBLE);
+	add("miniplot", {text}, MiniplotScalarFun, {"name"}, "Return a Miniplot greeting for name.", "miniplot('Sam')",
+	    false, false);
+	add("miniplot_openssl_version", {text}, MiniplotOpenSSLVersionFunction, {"name"},
+	    "Return a greeting and the OpenSSL version used to compile Miniplot.", "miniplot_openssl_version('Sam')", false,
+	    false);
+
+	const string browser = " Save an HTML chart, open the browser, and return the file path.";
+	const string file = " Save an HTML chart and return its path; output_path='tmp' creates a temporary file without "
+	                    "opening the browser, a custom path saves there, and an empty path opens the browser.";
+	const string html = " Return the HTML document without writing a file or opening the browser.";
+	struct Chart2D {
+		const char *name;
+		const char *kind;
+		scalar_function_t browser;
+		scalar_function_t file;
+		scalar_function_t html;
+	};
+	for (const auto &chart :
+	     {Chart2D {"bar_chart", "bar", BarChartFunction, BarChartWithPathFunction, BarChartHTMLFunction},
+	      Chart2D {"line_chart", "line", LineChartFunction, LineChartWithPathFunction, LineChartHTMLFunction},
+	      Chart2D {"area_chart", "area", AreaChartFunction, AreaChartWithPathFunction, AreaChartHTMLFunction}}) {
+		const string name = chart.name;
+		const string description =
+		    "Plot a " + string(chart.kind) + " chart from equal-length nonempty labels and values.";
+		const string example = "(['A', 'B'], [1.0, 2.0], 'Example'";
+		add(name, {labels, numbers, text}, chart.browser, {"x", "y", "title"}, description + browser,
+		    name + example + ")", true);
+		add(name, {labels, numbers, text, text}, chart.file, {"x", "y", "title", "output_path"}, description + file,
+		    name + example + ", 'tmp')", true);
+		add(name + "_html", {labels, numbers, text}, chart.html, {"x", "y", "title"}, description + html,
+		    name + "_html" + example + ")", false);
+	}
+
+	// Explicit overloads preserve the numeric API while allowing either date axis.
+	const vector<LogicalType> axis_types = {LogicalType::DOUBLE, LogicalType::DATE, LogicalType::TIMESTAMP,
+	                                        LogicalType::TIMESTAMP_TZ};
+	const vector<string> axis_examples = {
+	    "[1.0, 2.0]", "[DATE '2026-01-01', DATE '2026-01-02']",
+	    "[TIMESTAMP '2026-01-01 10:00:00', TIMESTAMP '2026-01-01 11:00:00']",
+	    "[TIMESTAMPTZ '2026-01-01 10:00:00+00', TIMESTAMPTZ '2026-01-01 11:00:00+00']"};
+	for (idx_t x = 0; x < axis_types.size(); x++) {
+		for (idx_t y = 0; y < axis_types.size(); y++) {
+			auto types = vector<LogicalType> {LogicalType::LIST(axis_types[x]), LogicalType::LIST(axis_types[y]), text};
+			const string example = "(" + axis_examples[x] + ", " + axis_examples[y] + ", 'Example'";
+			const string description =
+			    "Plot a 2D scatter chart from equal-length nonempty numeric or date/time arrays; "
+			    "TIMESTAMP keeps wall-clock fields and TIMESTAMPTZ is shown in UTC.";
+			add("scatter_chart", types, ScatterChartFunction, {"x", "y", "title"}, description + browser,
+			    "scatter_chart" + example + ")", true);
+			add("scatter_chart_html", types, ScatterChartHTMLFunction, {"x", "y", "title"}, description + html,
+			    "scatter_chart_html" + example + ")", false);
+			types.push_back(text);
+			add("scatter_chart", types, ScatterChartWithPathFunction, {"x", "y", "title", "output_path"},
+			    description + file, "scatter_chart" + example + ", 'tmp')", true);
+		}
+	}
+
+	const string d3 = "Plot a 3D scatter chart from equal-length nonempty x, y and z arrays.";
+	const string e3 = "([1.0, 2.0], [3.0, 4.0], [5.0, 6.0], 'Example'";
+	add("scatter_3d_chart", {numbers, numbers, numbers, text}, Scatter3DChartFunction, {"x", "y", "z", "title"},
+	    d3 + browser, "scatter_3d_chart" + e3 + ")", true);
+	add("scatter_3d_chart", {numbers, numbers, numbers, text, text}, Scatter3DChartWithPathFunction,
+	    {"x", "y", "z", "title", "output_path"}, d3 + file, "scatter_3d_chart" + e3 + ", 'tmp')", true);
+	add("scatter_3d_chart_html", {numbers, numbers, numbers, text}, Scatter3DChartHTMLFunction,
+	    {"x", "y", "z", "title"}, d3 + html, "scatter_3d_chart_html" + e3 + ")", false);
+	const string dt = "Plot a 3D scatter chart with a timestamp/hover label for each point.";
+	const string et = "([1.0], [2.0], [3.0], ['2026-01-01 10:00'], 'Example'";
+	add("scatter_3d_chart", {numbers, numbers, numbers, labels, text}, Scatter3DChartWithTimestampFunction,
+	    {"x", "y", "z", "timestamps", "title"}, dt + browser, "scatter_3d_chart" + et + ")", true);
+	add("scatter_3d_chart", {numbers, numbers, numbers, labels, text, text}, Scatter3DChartWithTimestampAndPathFunction,
+	    {"x", "y", "z", "timestamps", "title", "output_path"}, dt + file, "scatter_3d_chart" + et + ", 'tmp')", true);
+	add("scatter_3d_chart_html", {numbers, numbers, numbers, labels, text}, Scatter3DChartHTMLWithTimestampFunction,
+	    {"x", "y", "z", "timestamps", "title"}, dt + html, "scatter_3d_chart_html" + et + ")", false);
+
+	const string plotly = "Plot arbitrary Plotly traces from a JSON array of objects and a JSON layout object; "
+	                      "an optional JSON config object defaults to {}.";
+	const string pe = "('[{\"x\":[1,2],\"y\":[3,4],\"type\":\"scatter\"}]', '{\"title\":{\"text\":\"Example\"}}'";
+	add("plotly_new", {text, text}, PlotlyNewFunction<false>, {"data", "layout"}, plotly + browser,
+	    "plotly_new" + pe + ")", true);
+	add("plotly_new", {text, text, text}, PlotlyNewFunction<false>, {"data", "layout", "config"}, plotly + browser,
+	    "plotly_new" + pe + ", '{\"responsive\":true}')", true);
+	add("plotly_new", {text, text, text, text}, PlotlyNewFunction<false>, {"data", "layout", "config", "output_path"},
+	    plotly + file, "plotly_new" + pe + ", '{}', 'tmp')", true);
+	add("plotly_new_html", {text, text}, PlotlyNewFunction<true>, {"data", "layout"}, plotly + html,
+	    "plotly_new_html" + pe + ")", false);
+	add("plotly_new_html", {text, text, text}, PlotlyNewFunction<true>, {"data", "layout", "config"}, plotly + html,
+	    "plotly_new_html" + pe + ", '{\"responsive\":true}')", false);
+	return functions;
+}
+
 void MiniplotExtension::Load(ExtensionLoader &loader) {
-	// Version functions
-	loader.RegisterFunction(
-	    ScalarFunction("miniplot", {LogicalType::VARCHAR}, LogicalType::VARCHAR, MiniplotScalarFun));
-
-	loader.RegisterFunction(ScalarFunction("miniplot_openssl_version", {LogicalType::VARCHAR}, LogicalType::VARCHAR,
-	                                       MiniplotOpenSSLVersionFunction));
-
-	// ============================================
-	// 2D Charts with Overloading (既存機能)
-	// ============================================
-
-	// Bar Chart
-	loader.RegisterFunction(ScalarFunction(
-	    "bar_chart",
-	    {LogicalType::LIST(LogicalType::VARCHAR), LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR},
-	    LogicalType::VARCHAR, BarChartFunction));
-
-	loader.RegisterFunction(
-	    ScalarFunction("bar_chart",
-	                   {LogicalType::LIST(LogicalType::VARCHAR), LogicalType::LIST(LogicalType::DOUBLE),
-	                    LogicalType::VARCHAR, LogicalType::VARCHAR},
-	                   LogicalType::VARCHAR, BarChartWithPathFunction));
-
-	// Line Chart
-	loader.RegisterFunction(ScalarFunction(
-	    "line_chart",
-	    {LogicalType::LIST(LogicalType::VARCHAR), LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR},
-	    LogicalType::VARCHAR, LineChartFunction));
-
-	loader.RegisterFunction(
-	    ScalarFunction("line_chart",
-	                   {LogicalType::LIST(LogicalType::VARCHAR), LogicalType::LIST(LogicalType::DOUBLE),
-	                    LogicalType::VARCHAR, LogicalType::VARCHAR},
-	                   LogicalType::VARCHAR, LineChartWithPathFunction));
-
-	// Scatter Chart
-	loader.RegisterFunction(ScalarFunction(
-	    "scatter_chart",
-	    {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR},
-	    LogicalType::VARCHAR, ScatterChartFunction));
-
-	loader.RegisterFunction(
-	    ScalarFunction("scatter_chart",
-	                   {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::DOUBLE),
-	                    LogicalType::VARCHAR, LogicalType::VARCHAR},
-	                   LogicalType::VARCHAR, ScatterChartWithPathFunction));
-
-	// Area Chart
-	loader.RegisterFunction(ScalarFunction(
-	    "area_chart",
-	    {LogicalType::LIST(LogicalType::VARCHAR), LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR},
-	    LogicalType::VARCHAR, AreaChartFunction));
-
-	loader.RegisterFunction(
-	    ScalarFunction("area_chart",
-	                   {LogicalType::LIST(LogicalType::VARCHAR), LogicalType::LIST(LogicalType::DOUBLE),
-	                    LogicalType::VARCHAR, LogicalType::VARCHAR},
-	                   LogicalType::VARCHAR, AreaChartWithPathFunction));
-
-	// ============================================
-	// 3D Charts with Overloading (既存機能)
-	// ============================================
-
-	// 3D Scatter (no timestamp)
-	loader.RegisterFunction(
-	    ScalarFunction("scatter_3d_chart",
-	                   {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::DOUBLE),
-	                    LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR},
-	                   LogicalType::VARCHAR, Scatter3DChartFunction));
-
-	loader.RegisterFunction(
-	    ScalarFunction("scatter_3d_chart",
-	                   {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::DOUBLE),
-	                    LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR, LogicalType::VARCHAR},
-	                   LogicalType::VARCHAR, Scatter3DChartWithPathFunction));
-
-	// 3D Scatter (with timestamp)
-	loader.RegisterFunction(ScalarFunction(
-	    "scatter_3d_chart",
-	    {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::DOUBLE),
-	     LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::VARCHAR), LogicalType::VARCHAR},
-	    LogicalType::VARCHAR, Scatter3DChartWithTimestampFunction));
-
-	loader.RegisterFunction(
-	    ScalarFunction("scatter_3d_chart",
-	                   {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::DOUBLE),
-	                    LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::VARCHAR),
-	                    LogicalType::VARCHAR, LogicalType::VARCHAR},
-	                   LogicalType::VARCHAR, Scatter3DChartWithTimestampAndPathFunction));
-
-	// ============================================
-	// HTML返却関数 (WASM対応の新機能)
-	// ============================================
-
-	// 2D Charts - HTML版
-	loader.RegisterFunction(ScalarFunction(
-	    "bar_chart_html",
-	    {LogicalType::LIST(LogicalType::VARCHAR), LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR},
-	    LogicalType::VARCHAR, BarChartHTMLFunction));
-
-	loader.RegisterFunction(ScalarFunction(
-	    "line_chart_html",
-	    {LogicalType::LIST(LogicalType::VARCHAR), LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR},
-	    LogicalType::VARCHAR, LineChartHTMLFunction));
-
-	loader.RegisterFunction(ScalarFunction(
-	    "scatter_chart_html",
-	    {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR},
-	    LogicalType::VARCHAR, ScatterChartHTMLFunction));
-
-	loader.RegisterFunction(ScalarFunction(
-	    "area_chart_html",
-	    {LogicalType::LIST(LogicalType::VARCHAR), LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR},
-	    LogicalType::VARCHAR, AreaChartHTMLFunction));
-
-	// 3D Charts - HTML版
-	loader.RegisterFunction(
-	    ScalarFunction("scatter_3d_chart_html",
-	                   {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::DOUBLE),
-	                    LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR},
-	                   LogicalType::VARCHAR, Scatter3DChartHTMLFunction));
-
-	loader.RegisterFunction(ScalarFunction(
-	    "scatter_3d_chart_html",
-	    {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::DOUBLE),
-	     LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::VARCHAR), LogicalType::VARCHAR},
-	    LogicalType::VARCHAR, Scatter3DChartHTMLWithTimestampFunction));
+	for (auto &info : MiniplotFunctions()) {
+		loader.RegisterFunction(std::move(info));
+	}
 }
 
 std::string MiniplotExtension::Name() {
@@ -958,173 +944,10 @@ DUCKDB_EXTENSION_API void miniplot_duckdb_cpp_init(duckdb::ExtensionLoader &load
 DUCKDB_EXTENSION_API void miniplot_init(duckdb::DatabaseInstance &db) {
 	duckdb::Connection con(db);
 	con.BeginTransaction();
-
 	auto &catalog = duckdb::Catalog::GetSystemCatalog(*con.context);
-
-	// Version functions
-	duckdb::CreateScalarFunctionInfo miniplot_func(duckdb::ScalarFunction(
-	    "miniplot", {duckdb::LogicalType::VARCHAR}, duckdb::LogicalType::VARCHAR, duckdb::MiniplotScalarFun));
-	catalog.CreateFunction(*con.context, miniplot_func);
-
-	duckdb::CreateScalarFunctionInfo miniplot_openssl_func(
-	    duckdb::ScalarFunction("miniplot_openssl_version", {duckdb::LogicalType::VARCHAR}, duckdb::LogicalType::VARCHAR,
-	                           duckdb::MiniplotOpenSSLVersionFunction));
-	catalog.CreateFunction(*con.context, miniplot_openssl_func);
-
-	// ============================================
-	// 既存の2D Charts関数
-	// ============================================
-
-	// 2D Charts - 3 args (browser mode)
-	duckdb::CreateScalarFunctionInfo bar_chart_func_3(
-	    duckdb::ScalarFunction("bar_chart",
-	                           {duckdb::LogicalType::LIST(duckdb::LogicalType::VARCHAR),
-	                            duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE), duckdb::LogicalType::VARCHAR},
-	                           duckdb::LogicalType::VARCHAR, duckdb::BarChartFunction));
-	catalog.CreateFunction(*con.context, bar_chart_func_3);
-
-	// 2D Charts - 4 args (with path)
-	duckdb::CreateScalarFunctionInfo bar_chart_func_4(
-	    duckdb::ScalarFunction("bar_chart",
-	                           {duckdb::LogicalType::LIST(duckdb::LogicalType::VARCHAR),
-	                            duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE), duckdb::LogicalType::VARCHAR,
-	                            duckdb::LogicalType::VARCHAR},
-	                           duckdb::LogicalType::VARCHAR, duckdb::BarChartWithPathFunction));
-	catalog.CreateFunction(*con.context, bar_chart_func_4);
-
-	duckdb::CreateScalarFunctionInfo line_chart_func_3(
-	    duckdb::ScalarFunction("line_chart",
-	                           {duckdb::LogicalType::LIST(duckdb::LogicalType::VARCHAR),
-	                            duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE), duckdb::LogicalType::VARCHAR},
-	                           duckdb::LogicalType::VARCHAR, duckdb::LineChartFunction));
-	catalog.CreateFunction(*con.context, line_chart_func_3);
-
-	duckdb::CreateScalarFunctionInfo line_chart_func_4(
-	    duckdb::ScalarFunction("line_chart",
-	                           {duckdb::LogicalType::LIST(duckdb::LogicalType::VARCHAR),
-	                            duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE), duckdb::LogicalType::VARCHAR,
-	                            duckdb::LogicalType::VARCHAR},
-	                           duckdb::LogicalType::VARCHAR, duckdb::LineChartWithPathFunction));
-	catalog.CreateFunction(*con.context, line_chart_func_4);
-
-	duckdb::CreateScalarFunctionInfo scatter_chart_func_3(
-	    duckdb::ScalarFunction("scatter_chart",
-	                           {duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE),
-	                            duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE), duckdb::LogicalType::VARCHAR},
-	                           duckdb::LogicalType::VARCHAR, duckdb::ScatterChartFunction));
-	catalog.CreateFunction(*con.context, scatter_chart_func_3);
-
-	duckdb::CreateScalarFunctionInfo scatter_chart_func_4(duckdb::ScalarFunction(
-	    "scatter_chart",
-	    {duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE), duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE),
-	     duckdb::LogicalType::VARCHAR, duckdb::LogicalType::VARCHAR},
-	    duckdb::LogicalType::VARCHAR, duckdb::ScatterChartWithPathFunction));
-	catalog.CreateFunction(*con.context, scatter_chart_func_4);
-
-	duckdb::CreateScalarFunctionInfo area_chart_func_3(
-	    duckdb::ScalarFunction("area_chart",
-	                           {duckdb::LogicalType::LIST(duckdb::LogicalType::VARCHAR),
-	                            duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE), duckdb::LogicalType::VARCHAR},
-	                           duckdb::LogicalType::VARCHAR, duckdb::AreaChartFunction));
-	catalog.CreateFunction(*con.context, area_chart_func_3);
-
-	duckdb::CreateScalarFunctionInfo area_chart_func_4(
-	    duckdb::ScalarFunction("area_chart",
-	                           {duckdb::LogicalType::LIST(duckdb::LogicalType::VARCHAR),
-	                            duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE), duckdb::LogicalType::VARCHAR,
-	                            duckdb::LogicalType::VARCHAR},
-	                           duckdb::LogicalType::VARCHAR, duckdb::AreaChartWithPathFunction));
-	catalog.CreateFunction(*con.context, area_chart_func_4);
-
-	// ============================================
-	// 既存の3D Charts関数
-	// ============================================
-
-	// 3D Scatter Chart - 4 args (browser, no timestamp)
-	duckdb::CreateScalarFunctionInfo scatter_3d_chart_func_4(duckdb::ScalarFunction(
-	    "scatter_3d_chart",
-	    {duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE), duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE),
-	     duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE), duckdb::LogicalType::VARCHAR},
-	    duckdb::LogicalType::VARCHAR, duckdb::Scatter3DChartFunction));
-	catalog.CreateFunction(*con.context, scatter_3d_chart_func_4);
-
-	// 3D Scatter Chart - 5 args (with path, no timestamp)
-	duckdb::CreateScalarFunctionInfo scatter_3d_chart_func_5_path(duckdb::ScalarFunction(
-	    "scatter_3d_chart",
-	    {duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE), duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE),
-	     duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE), duckdb::LogicalType::VARCHAR,
-	     duckdb::LogicalType::VARCHAR},
-	    duckdb::LogicalType::VARCHAR, duckdb::Scatter3DChartWithPathFunction));
-	catalog.CreateFunction(*con.context, scatter_3d_chart_func_5_path);
-
-	// 3D Scatter Chart - 5 args (browser, with timestamp)
-	duckdb::CreateScalarFunctionInfo scatter_3d_chart_timestamp_func_5(duckdb::ScalarFunction(
-	    "scatter_3d_chart",
-	    {duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE), duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE),
-	     duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE),
-	     duckdb::LogicalType::LIST(duckdb::LogicalType::VARCHAR), duckdb::LogicalType::VARCHAR},
-	    duckdb::LogicalType::VARCHAR, duckdb::Scatter3DChartWithTimestampFunction));
-	catalog.CreateFunction(*con.context, scatter_3d_chart_timestamp_func_5);
-
-	// 3D Scatter Chart - 6 args (with path and timestamp)
-	duckdb::CreateScalarFunctionInfo scatter_3d_chart_timestamp_func_6(duckdb::ScalarFunction(
-	    "scatter_3d_chart",
-	    {duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE), duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE),
-	     duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE),
-	     duckdb::LogicalType::LIST(duckdb::LogicalType::VARCHAR), duckdb::LogicalType::VARCHAR,
-	     duckdb::LogicalType::VARCHAR},
-	    duckdb::LogicalType::VARCHAR, duckdb::Scatter3DChartWithTimestampAndPathFunction));
-	catalog.CreateFunction(*con.context, scatter_3d_chart_timestamp_func_6);
-
-	// ============================================
-	// 新規: HTML返却関数 (WASM対応)
-	// ============================================
-
-	// 2D Charts - HTML版
-	duckdb::CreateScalarFunctionInfo bar_chart_html_func(
-	    duckdb::ScalarFunction("bar_chart_html",
-	                           {duckdb::LogicalType::LIST(duckdb::LogicalType::VARCHAR),
-	                            duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE), duckdb::LogicalType::VARCHAR},
-	                           duckdb::LogicalType::VARCHAR, duckdb::BarChartHTMLFunction));
-	catalog.CreateFunction(*con.context, bar_chart_html_func);
-
-	duckdb::CreateScalarFunctionInfo line_chart_html_func(
-	    duckdb::ScalarFunction("line_chart_html",
-	                           {duckdb::LogicalType::LIST(duckdb::LogicalType::VARCHAR),
-	                            duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE), duckdb::LogicalType::VARCHAR},
-	                           duckdb::LogicalType::VARCHAR, duckdb::LineChartHTMLFunction));
-	catalog.CreateFunction(*con.context, line_chart_html_func);
-
-	duckdb::CreateScalarFunctionInfo scatter_chart_html_func(
-	    duckdb::ScalarFunction("scatter_chart_html",
-	                           {duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE),
-	                            duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE), duckdb::LogicalType::VARCHAR},
-	                           duckdb::LogicalType::VARCHAR, duckdb::ScatterChartHTMLFunction));
-	catalog.CreateFunction(*con.context, scatter_chart_html_func);
-
-	duckdb::CreateScalarFunctionInfo area_chart_html_func(
-	    duckdb::ScalarFunction("area_chart_html",
-	                           {duckdb::LogicalType::LIST(duckdb::LogicalType::VARCHAR),
-	                            duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE), duckdb::LogicalType::VARCHAR},
-	                           duckdb::LogicalType::VARCHAR, duckdb::AreaChartHTMLFunction));
-	catalog.CreateFunction(*con.context, area_chart_html_func);
-
-	// 3D Charts - HTML版
-	duckdb::CreateScalarFunctionInfo scatter_3d_chart_html_func(duckdb::ScalarFunction(
-	    "scatter_3d_chart_html",
-	    {duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE), duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE),
-	     duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE), duckdb::LogicalType::VARCHAR},
-	    duckdb::LogicalType::VARCHAR, duckdb::Scatter3DChartHTMLFunction));
-	catalog.CreateFunction(*con.context, scatter_3d_chart_html_func);
-
-	duckdb::CreateScalarFunctionInfo scatter_3d_chart_html_timestamp_func(duckdb::ScalarFunction(
-	    "scatter_3d_chart_html",
-	    {duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE), duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE),
-	     duckdb::LogicalType::LIST(duckdb::LogicalType::DOUBLE),
-	     duckdb::LogicalType::LIST(duckdb::LogicalType::VARCHAR), duckdb::LogicalType::VARCHAR},
-	    duckdb::LogicalType::VARCHAR, duckdb::Scatter3DChartHTMLWithTimestampFunction));
-	catalog.CreateFunction(*con.context, scatter_3d_chart_html_timestamp_func);
-
+	for (auto &info : duckdb::MiniplotFunctions()) {
+		catalog.CreateFunction(*con.context, info);
+	}
 	con.Commit();
 }
 
