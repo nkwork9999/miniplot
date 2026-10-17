@@ -86,6 +86,40 @@ inline string NumberLabel(double value) {
 	return stream.str();
 }
 
+inline string QuoteJSON(const string &input) {
+	string output = "\"";
+	for (unsigned char c : input) {
+		if (c == '"' || c == '\\') {
+			output += '\\';
+			output += static_cast<char>(c);
+		} else if (c < 32) {
+			const char *hex = "0123456789abcdef";
+			output += "\\u00";
+			output += hex[c >> 4];
+			output += hex[c & 15];
+		} else {
+			output += static_cast<char>(c);
+		}
+	}
+	return output + '"';
+}
+
+// JSON stays data: parse an escaped string instead of inserting a JavaScript
+// object literal (which would also give __proto__ different semantics).
+inline string GeneratePlotlyHTML(const string &data_json, const string &layout_json, const string &config_json,
+                                 const string &title = "Miniplot") {
+	std::ostringstream html;
+	html << "<!DOCTYPE html>\n<html><head><meta charset=\"UTF-8\"><title>" << EscapeHTML(title)
+	     << "</title><style>body{margin:0;font-family:system-ui,sans-serif}#chart{width:100%;min-height:600px}</style>"
+	     << "</head><body><div id=\"chart\"></div>\n"
+	     << "<script src=\"https://cdn.plot.ly/plotly-2.27.0.min.js\"></script>\n<script>\n"
+	     << "var data = JSON.parse('" << EscapeString(data_json) << "');\n"
+	     << "var layout = JSON.parse('" << EscapeString(layout_json) << "');\n"
+	     << "var config = JSON.parse('" << EscapeString(config_json) << "');\n"
+	     << "Plotly.newPlot('chart', data, layout, config);\n</script></body></html>";
+	return html.str();
+}
+
 // Generate HTML
 inline string GenerateHTML(const std::vector<string> &x_data, const std::vector<double> &y_data, const string &title,
                            const string &chart_type) {

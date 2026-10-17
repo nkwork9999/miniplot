@@ -16,3 +16,26 @@ jobs:
         with:
           node-version: '22'
       - run: bash scripts/test-unit.sh
+  native-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build against DuckDB 1.5.6
+        run: |
+          git submodule update --init --depth 1 duckdb
+          cmake -S duckdb -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DEXTENSION_STATIC_BUILD=ON -DBUILD_UNITTESTS=OFF -DBUILD_SHELL=OFF \
+            -DDUCKDB_EXTENSION_CONFIGS="$PWD/extension_config.cmake" -DOVERRIDE_GIT_DESCRIBE=v1.5.6
+          cmake --build build/release --target miniplot_loadable_extension -j 2
+      - name: Verify SQL, JavaScript inputs, file output and metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p build/validation
+          gh release download v1.5.6 --repo duckdb/duckdb --pattern duckdb_cli-linux-amd64.zip --dir build/validation
+          unzip -q build/validation/duckdb_cli-linux-amd64.zip -d build/validation
+          python3 test/native_integration.py --duckdb build/validation/duckdb \
+            --extension build/release/extension/miniplot/miniplot.duckdb_extension

@@ -1,0 +1,142 @@
+# name: test/sql/plotly.test
+# group: [sql]
+
+# JSON inputs, typed date axes and discoverable overloads.
+require miniplot
+
+query I
+SELECT contains(plotly_new_html('[{"x":[1,2],"y":[3,4],"type":"scatter"},{"x":[1],"y":[5],"type":"bar"}]', '{"showlegend":true}', '{"responsive":false}'), 'Plotly.newPlot');
+----
+true
+
+query III
+SELECT plotly_new_html(NULL, '{}') IS NULL, plotly_new_html('[]', NULL) IS NULL, plotly_new_html('[]', '{}', NULL) IS NULL;
+----
+true	true	true
+
+statement error
+SELECT plotly_new_html('not json', '{}');
+----
+data must be valid JSON
+
+statement error
+SELECT plotly_new_html('{}', '{}');
+----
+data must be a JSON array
+
+statement error
+SELECT plotly_new_html('[null]', '{}');
+----
+each data entry must be a JSON trace object
+
+statement error
+SELECT plotly_new_html('[]', '[]');
+----
+layout must be a JSON object
+
+statement error
+SELECT plotly_new_html('[]', '{}', 'null');
+----
+config must be a JSON object
+
+statement error
+SELECT plotly_new_html('[{"x":[NaN]}]', '{}');
+----
+data must be valid JSON
+
+# TRY recovers within a vector and the connection is still usable afterwards.
+query I
+SELECT TRY(plotly_new_html(data, '{}')) IS NULL FROM (VALUES ('bad'), ('[]'), (NULL), ('[1]'), ('[{}]')) t(data);
+----
+true
+false
+true
+true
+false
+
+query I
+SELECT 42;
+----
+42
+
+query I
+SELECT count(*) FROM (SELECT plotly_new_html(CASE WHEN i % 2 = 0 THEN '[]' ELSE '[{}]' END, '{}') AS html FROM range(4097) t(i)) WHERE html LIKE '%Plotly.newPlot%';
+----
+4097
+
+query I
+SELECT contains(scatter_chart_html([TIMESTAMP '2026-01-01 12:34:56.123456'], [1.0], 'Time'), '2026-01-01 12:34:56.123456');
+----
+true
+
+query I
+SELECT contains(scatter_chart_html([1.0], [DATE '2026-01-01'], 'Time'), '2026-01-01');
+----
+true
+
+query I
+SELECT contains(scatter_chart_html([DATE '2026-01-01'], [TIMESTAMP '2026-02-01 03:04:05'], 'Time'), '2026-02-01 03:04:05');
+----
+true
+
+# Zoned values denote instants and are rendered in UTC, not the session zone.
+query I
+SELECT contains(scatter_chart_html([TIMESTAMPTZ '2026-01-01 09:00:00+09'], [1.0], 'Time'), '2026-01-01 00:00:00');
+----
+true
+
+query I
+SELECT scatter_chart_html(NULL::TIMESTAMP[], [1.0], 'Time') IS NULL;
+----
+true
+
+statement error
+SELECT scatter_chart_html([NULL::TIMESTAMP], [1.0], 'Time');
+----
+Chart arrays cannot contain NULL elements
+
+statement error
+SELECT scatter_chart_html([TIMESTAMP 'infinity'], [1.0], 'Time');
+----
+Chart timestamps must be finite
+
+statement error
+SELECT scatter_chart_html([DATE '-infinity'], [1.0], 'Time');
+----
+Chart dates must be finite
+
+statement error
+SELECT scatter_chart_html([]::TIMESTAMP[], []::DOUBLE[], 'Time');
+----
+Data arrays cannot be empty
+
+statement error
+SELECT scatter_chart_html([TIMESTAMP '2026-01-01'], [1.0,2.0], 'Time');
+----
+x and y arrays must have the same length
+
+query I
+SELECT count(*) FROM (SELECT scatter_chart_html([TIMESTAMP '2026-01-01'], [i::DOUBLE], 'Time') AS html FROM range(4097) t(i) WHERE i % 2 = 0) WHERE html LIKE '%2026-01-01%';
+----
+2049
+
+# Every overload, including HTML variants and diagnostics, has its own signature.
+query II
+SELECT count(DISTINCT function_name), count(*) FILTER (WHERE description IS NULL OR description = '' OR len(examples) = 0 OR len(categories) = 0 OR len(parameters) != len(parameter_types) OR regexp_matches(array_to_string(parameters, ','), 'col[0-9]+')) FROM duckdb_functions() WHERE function_name IN ('miniplot','miniplot_openssl_version','bar_chart','bar_chart_html','line_chart','line_chart_html','area_chart','area_chart_html','scatter_chart','scatter_chart_html','scatter_3d_chart','scatter_3d_chart_html','plotly_new','plotly_new_html');
+----
+14	0
+
+query I
+SELECT parameters FROM duckdb_functions() WHERE function_name = 'plotly_new' AND len(parameter_types) = 4;
+----
+[data, layout, config, output_path]
+
+query I
+SELECT count(*) FROM duckdb_functions() WHERE function_name IN ('plotly_new','scatter_chart','bar_chart','line_chart','area_chart','scatter_3d_chart') AND NOT has_side_effects;
+----
+0
+
+query I
+SELECT count(*) FROM duckdb_functions() WHERE function_name IN ('plotly_new_html','scatter_chart_html','bar_chart_html','line_chart_html','area_chart_html','scatter_3d_chart_html') AND has_side_effects;
+----
+0
