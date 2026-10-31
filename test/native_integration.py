@@ -110,6 +110,48 @@ def main():
                     ],
                 }
             )
+    # Numeric and temporal line/area axes retain spacing, precision and UTC semantics.
+    precise_axis = ("[0.1, 1.2345678901234567]", [0.1, 1.2345678901234567], "linear")
+    for kind, mode in [("line", "lines+markers"), ("area", "lines")]:
+        for x_expr, x, x_type in axes + [precise_axis,
+                                         ("[1.0000000000000002, 1e-200]", [1.0000000000000002, 1e-200], "linear"),
+                                         ("[9007199254740991.0, -1e200]", [9007199254740991, -1e200], "linear")]:
+            trace = {"type": "scatter", "mode": mode, "x": x, "y": [0.1, 1.2345678901234567]}
+            if kind == "area":
+                trace["fill"] = "tozeroy"
+            charts.append({
+                "name": kind + " / " + x_expr,
+                "html": html(f"{kind}_chart_html({x_expr}, [0.1, 1.2345678901234567], 'Time')"),
+                "expected": [[trace],
+                             {"title": {"text": "Time"}, "xaxis": {"type": x_type}, "yaxis": {"type": "linear"}},
+                             {"responsive": True}],
+            })
+        trace = {"type": "scatter", "mode": mode, "x": [1, 2, 10], "y": [3, 4, 5]}
+        if kind == "area":
+            trace["fill"] = "tozeroy"
+        charts.append({
+            "name": kind + " / uneven numeric intervals",
+            "html": html(f"{kind}_chart_html([1.0, 2.0, 10.0], [3.0, 4.0, 5.0], 'Samples')"),
+            "expected": [[trace],
+                         {"title": {"text": "Samples"}, "xaxis": {"type": "linear"}, "yaxis": {"type": "linear"}},
+                         {"responsive": True}],
+        })
+        invalid = sql(
+            f"SELECT TRY({kind}_chart_html(x, y, 'Time')) IS NULL AS failed FROM (VALUES "
+            "([NULL::TIMESTAMP], [1.0]), ([TIMESTAMP 'infinity'], [1.0]), "
+            "([]::TIMESTAMP[], []::DOUBLE[]), ([TIMESTAMP '2026-01-01'], [1.0,2.0]), "
+            "([TIMESTAMP '2026-01-01'], ['NaN'::DOUBLE]), "
+            "([TIMESTAMP '2026-01-01'], [1.0])) t(x,y);"
+        )
+        assert [r["failed"] for r in invalid] == [True] * 5 + [False]
+        assert sql(f"SELECT {kind}_chart_html(NULL::DATE[], [1.0], 'Time') IS NULL AS n;")[0]["n"]
+        batch = sql(
+            f"SELECT count(*) AS n FROM (SELECT {kind}_chart_html([DATE '2026-01-01'], [i::DOUBLE], 'Time') AS html "
+            "FROM range(4097) t(i) WHERE i % 2 = 0) WHERE html LIKE '%2026-01-01%';"
+        )
+        assert batch[0]["n"] == 2049
+
+
     failures = sql(
         "SELECT TRY(scatter_chart_html(x, y, 'Time')) IS NULL AS failed FROM (VALUES "
         "([NULL::TIMESTAMP], [1.0]), ([TIMESTAMP 'infinity'], [1.0]), "
@@ -138,6 +180,13 @@ def main():
         output = str(Path(directory) / "dated.html")
         sql("SELECT scatter_chart([DATE '2026-01-01'], [1.0], 'Time', " + literal(output) + ");")
         assert Path(output).read_text() == html("scatter_chart_html([DATE '2026-01-01'], [1.0], 'Time')")
+
+        for kind in ['line', 'area']:
+            output = str(Path(directory) / (kind + '.html'))
+            expression = f"{kind}_chart([TIMESTAMP '2026-01-01 10:00:00.123456'], [0.1], 'Time', {literal(output)})"
+            sql('SELECT ' + expression + ';')
+            assert Path(output).read_text() == html(
+                f"{kind}_chart_html([TIMESTAMP '2026-01-01 10:00:00.123456'], [0.1], 'Time')")
 
     metadata = sql(
         "SELECT function_name, parameters, parameter_types, description, examples, categories "

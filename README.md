@@ -138,6 +138,33 @@ is separate from DuckDB's timestamp precision. Arrays must be nonempty, have
 matching lengths, and contain no NULL or infinite values; SQL NULL arguments
 return NULL.
 
+### Numeric and time axes for line and area charts
+
+`line_chart`, `area_chart`, and their `*_html` variants also accept `DOUBLE[]`,
+`DATE[]`, `TIMESTAMP[]`, or `TIMESTAMPTZ[]` for x, with `DOUBLE[]` for y.
+Numeric x values use a linear scale, so uneven sampling intervals retain their
+spacing. Time axes use a date scale. Existing `VARCHAR[]` labels remain supported.
+
+```sql
+-- The interval from 2 to 10 is eight times the interval from 1 to 2.
+SELECT line_chart([1.0, 2.0, 10.0], [0.1, 0.2, 0.3], 'Uneven samples', 'tmp');
+
+SELECT area_chart_html(
+    [TIMESTAMP '2026-01-01 10:00:00.123456', TIMESTAMP '2026-01-01 12:00:00'],
+    [12.5, 15.0], 'Sensor readings'
+);
+```
+
+Like scatter charts, these axes serialize finite doubles with round-trip precision;
+`TIMESTAMP` retains wall-clock fields and `TIMESTAMPTZ` is converted to UTC.
+Input order is preserved; sort aggregated lists explicitly when needed. Arrays
+must be nonempty, equally sized and contain no NULL or infinite values. SQL NULL
+arguments return NULL. File, browser and HTML output modes work as before.
+
+Numeric axes use IEEE 754 doubles: integers beyond 2^53 and high-precision DECIMAL
+values can lose precision when converted to DOUBLE. Timestamp text retains DuckDB's
+microseconds, while Plotly/browser date rendering has its own precision limits.
+
 ### Discover functions through SQL (#5)
 
 Every overload, including HTML variants and the diagnostic functions, provides

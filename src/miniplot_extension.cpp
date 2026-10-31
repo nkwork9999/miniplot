@@ -52,7 +52,9 @@ static std::vector<string> ExtractStringList(const Vector &list_vector, idx_t ro
 			if (children[i].IsNull()) {
 				throw InvalidInputException("Chart arrays cannot contain NULL elements");
 			}
-			{ result.push_back(children[i].ToString()); }
+			{
+				result.push_back(children[i].ToString());
+			}
 		}
 	} catch (const std::exception &e) {
 		throw InvalidInputException("Failed to extract string list: %s", e.what());
@@ -258,8 +260,10 @@ static string ScatterAxisJSON(const Value &values, bool &is_date) {
 	return json + ']';
 }
 
-template <bool RETURN_HTML>
-static void ScatterChartExecute(DataChunk &args, Vector &result) {
+enum class TypedChartKind { SCATTER, LINE, AREA };
+
+template <bool RETURN_HTML, TypedChartKind KIND = TypedChartKind::SCATTER>
+static void TypedChartExecute(DataChunk &args, Vector &result) {
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 	for (idx_t row = 0; row < args.size(); row++) {
 		if (RowHasNull(args, row)) {
@@ -279,7 +283,14 @@ static void ScatterChartExecute(DataChunk &args, Vector &result) {
 		auto x_json = ScatterAxisJSON(x, x_date);
 		auto y_json = ScatterAxisJSON(y, y_date);
 		auto title = args.data[2].GetValue(row).ToString();
-		auto data = "[{\"type\":\"scatter\",\"mode\":\"markers\",\"x\":" + x_json + ",\"y\":" + y_json + "}]";
+		const char *mode = KIND == TypedChartKind::SCATTER ? "markers"
+		                   : KIND == TypedChartKind::LINE  ? "lines+markers"
+		                                                   : "lines";
+		auto data = "[{\"type\":\"scatter\",\"mode\":\"" + string(mode) + "\",\"x\":" + x_json + ",\"y\":" + y_json;
+		if (KIND == TypedChartKind::AREA) {
+			data += ",\"fill\":\"tozeroy\"";
+		}
+		data += "}]";
 		auto layout = "{\"title\":{\"text\":" + QuoteJSON(title) + "},\"xaxis\":{\"type\":\"" +
 		              (x_date ? "date" : "linear") + "\"},\"yaxis\":{\"type\":\"" + (y_date ? "date" : "linear") +
 		              "\"}}";
@@ -291,6 +302,11 @@ static void ScatterChartExecute(DataChunk &args, Vector &result) {
 			SaveChartHTML(html, path, result, row);
 		}
 	}
+}
+
+template <bool RETURN_HTML, TypedChartKind KIND>
+static void TypedChartFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	TypedChartExecute<RETURN_HTML, KIND>(args, result);
 }
 
 // Generic chart creation with path control
@@ -388,7 +404,7 @@ inline void LineChartFunction(DataChunk &args, ExpressionState &state, Vector &r
 }
 
 inline void ScatterChartFunction(DataChunk &args, ExpressionState &state, Vector &result) {
-	ScatterChartExecute<false>(args, result);
+	TypedChartExecute<false>(args, result);
 }
 
 inline void AreaChartFunction(DataChunk &args, ExpressionState &state, Vector &result) {
@@ -464,7 +480,7 @@ inline void LineChartWithPathFunction(DataChunk &args, ExpressionState &state, V
 }
 
 inline void ScatterChartWithPathFunction(DataChunk &args, ExpressionState &state, Vector &result) {
-	ScatterChartExecute<false>(args, result);
+	TypedChartExecute<false>(args, result);
 }
 
 inline void AreaChartWithPathFunction(DataChunk &args, ExpressionState &state, Vector &result) {
@@ -670,7 +686,7 @@ inline void LineChartHTMLFunction(DataChunk &args, ExpressionState &state, Vecto
 }
 
 inline void ScatterChartHTMLFunction(DataChunk &args, ExpressionState &state, Vector &result) {
-	ScatterChartExecute<true>(args, result);
+	TypedChartExecute<true>(args, result);
 }
 
 inline void AreaChartHTMLFunction(DataChunk &args, ExpressionState &state, Vector &result) {
@@ -879,6 +895,32 @@ static vector<CreateScalarFunctionInfo> MiniplotFunctions() {
 			types.push_back(text);
 			add("scatter_chart", types, ScatterChartWithPathFunction, {"x", "y", "title", "output_path"},
 			    description + file, "scatter_chart" + example + ", 'tmp')", true);
+		}
+	}
+
+	// Numeric and temporal x axes share scatter's precise serialization and validation.
+	struct TypedChart {
+		const char *name;
+		scalar_function_t file;
+		scalar_function_t html;
+	};
+	for (const auto &chart : {TypedChart {"line_chart", TypedChartFunction<false, TypedChartKind::LINE>,
+	                                      TypedChartFunction<true, TypedChartKind::LINE>},
+	                          TypedChart {"area_chart", TypedChartFunction<false, TypedChartKind::AREA>,
+	                                      TypedChartFunction<true, TypedChartKind::AREA>}}) {
+		const string name = chart.name;
+		for (idx_t x = 0; x < axis_types.size(); x++) {
+			auto types = vector<LogicalType> {LogicalType::LIST(axis_types[x]), numbers, text};
+			const string example = "(" + axis_examples[x] + ", [1.0, 2.0], 'Example'";
+			const string description =
+			    "Plot equal-length nonempty numeric or date/time x values and numeric y values; "
+			    "numeric spacing is preserved, TIMESTAMP keeps wall-clock fields and TIMESTAMPTZ is shown in UTC.";
+			add(name, types, chart.file, {"x", "y", "title"}, description + browser, name + example + ")", true);
+			add(name + "_html", types, chart.html, {"x", "y", "title"}, description + html,
+			    name + "_html" + example + ")", false);
+			types.push_back(text);
+			add(name, types, chart.file, {"x", "y", "title", "output_path"}, description + file,
+			    name + example + ", 'tmp')", true);
 		}
 	}
 
