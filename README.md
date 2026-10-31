@@ -31,6 +31,13 @@ LOAD miniplot;
 
 That's it! No additional setup required.
 
+Source builds and the community submission target DuckDB **2.0.0**. The integration
+matrix also checks **1.5.6** compatibility. A C++ extension binary must match its
+DuckDB host version; build/load the corresponding artifact rather than reuse a
+1.5 binary with 2.0. The optional PNG/PDF exporter requires the separate setup
+below; HTML generation needs no Node.js installation.
+
+
 ## 🚀 Easiest Example - 30 Seconds to Your First Chart
 
 **Step 1: Create `test.csv` in your local directory**

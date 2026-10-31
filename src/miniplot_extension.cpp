@@ -1,5 +1,18 @@
 #define DUCKDB_EXTENSION_MAIN
 
+// System headers must precede DuckDB macros (notably macOS __restrict).
+#ifdef _WIN32
+#include <process.h>
+#define getpid _getpid
+#else
+#include <unistd.h>
+#ifndef __EMSCRIPTEN__
+#include <spawn.h>
+#include <sys/wait.h>
+extern char **environ;
+#endif
+#endif
+
 #include "miniplot_extension.hpp"
 #include "chart_html.hpp"
 #include "duckdb.hpp"
@@ -31,18 +44,6 @@
 #include <limits>
 #include <locale>
 #include <memory>
-
-#ifdef _WIN32
-#include <process.h>
-#define getpid _getpid
-#else
-#include <unistd.h>
-#ifndef __EMSCRIPTEN__
-#include <spawn.h>
-#include <sys/wait.h>
-extern char **environ;
-#endif
-#endif
 
 namespace duckdb {
 using namespace miniplot_html;
@@ -248,14 +249,14 @@ static string ScatterAxisJSON(const Value &values, bool &is_date) {
 			string label;
 			if (type == LogicalTypeId::DATE) {
 				auto date = DateValue::Get(value);
-				if (!Date::IsFinite(date)) {
+				if (date == date_t::infinity() || date == date_t::ninfinity()) {
 					throw InvalidInputException("Chart dates must be finite");
 				}
 				label = Date::ToString(date);
 			} else {
 				auto timestamp = type == LogicalTypeId::TIMESTAMP_TZ ? timestamp_t(TimestampTZValue::Get(value).value)
 				                                                     : TimestampValue::Get(value);
-				if (!Timestamp::IsFinite(timestamp)) {
+				if (timestamp == timestamp_t::infinity() || timestamp == timestamp_t::ninfinity()) {
 					throw InvalidInputException("Chart timestamps must be finite");
 				}
 				// TIMESTAMPTZ is an instant: present it in UTC on Plotly's date axis.
@@ -855,12 +856,25 @@ inline void MiniplotOpenSSLVersionFunction(DataChunk &args, ExpressionState &sta
 // Extension Load
 // ============================================
 
+// DuckDB 2 reads argument names from the executable signature; 1.5 reads the description.
+template <class FUNCTION>
+static auto SetSignatureParameterNames(FUNCTION &function, const vector<string> &names, int)
+    -> decltype(function.GetSignature().GetParameter(0).SetName(Identifier(names[0])), void()) {
+	for (idx_t i = 0; i < names.size(); i++) {
+		function.GetSignature().GetParameter(i).SetName(Identifier(names[i]));
+	}
+}
+template <class FUNCTION>
+static void SetSignatureParameterNames(FUNCTION &, const vector<string> &, long) {
+}
+
 // Use the same documented registrations for both extension entry points.
 static vector<CreateScalarFunctionInfo> MiniplotFunctions() {
 	vector<CreateScalarFunctionInfo> functions;
 	auto add = [&](const string &name, vector<LogicalType> types, scalar_function_t callback, vector<string> parameters,
 	               const string &description, const string &example, bool writes_file, bool can_throw = true) {
-		ScalarFunction function(name, types, LogicalType::VARCHAR, callback);
+		ScalarFunction function(Identifier(name), types, LogicalType::VARCHAR, callback);
+		SetSignatureParameterNames(function, parameters, 0);
 		if (writes_file) {
 			function.SetFunctionCallback([callback](DataChunk &args, ExpressionState &state, Vector &result) {
 				for (idx_t row = 0; row < args.size(); row++) {

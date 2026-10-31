@@ -1,0 +1,41 @@
+{
+  "date": "2026-10-31",
+  "phase": "local pre-submission validation",
+  "source_before_compatibility_fixes": "014e6d569c73ce62458fc6c3ea35854ec0a63539",
+  "community_base": "845779e73672b9d28420b5a1268df7bf247a0b9d",
+  "stable_sdk": "d54cbbe3df17e8e5ce68312f483b4155836112aa",
+  "ci_tools": "e38c2e18085bb960555ed74f1d9695de8e67b108",
+  "runtime_tests": {
+    "v2.0.0_osx_arm64": {
+      "native_integration": "passed: 37 JavaScript documents and 100 original overload metadata rows",
+      "additional_integration": "passed: ten chart families and 30 overloads",
+      "large_integration": "passed: 1,000,000 points retained",
+      "report_export": "passed: real SQL PNG/PDF, escaped prose, embedded JSON and external-access restrictions",
+      "browser_export": "passed: ten real Chromium chart renders and report PNG/PDF validation",
+      "new_sql_cases": {
+        "queries_and_expected_errors": 13,
+        "harness": "same SQL through matching official CLI; not SDK unittest runner"
+      }
+    },
+    "v1.5.6_osx_arm64": {
+      "native_integration": "passed",
+      "additional_integration": "passed"
+    }
+  },
+  "regressions_reproduced": [
+    "v2 SDK compilation failed for Date/Timestamp finite helpers and string ScalarFunction names",
+    "macOS spawn.h failed after SDK __restrict macro change",
+    "v2 function catalog exposed col0/col1 despite descriptive parameter names"
+  ],
+  "fixes": [
+    "use shared date/timestamp infinity sentinels and explicit Identifier(name)",
+    "include system headers before DuckDB macro definitions",
+    "populate v2 executable signature parameter names with a capability-detected helper; retain 1.5 description fallback"
+  ],
+  "platform_exclusions_added": false,
+  "coverage_limits": [
+    "Community CI results must be verified at its PR head and exact source ref.",
+    "No DuckDB-Wasm runtime SQL or Windows PNG/PDF execution claim.",
+    "Optional Node/Chromium exporter is not bundled with the community extension."
+  ]
+}

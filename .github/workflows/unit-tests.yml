@@ -17,6 +17,17 @@ jobs:
           node-version: '22'
       - run: bash scripts/test-unit.sh
   native-integration:
+    name: native-integration (${{ matrix.duckdb_version }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - duckdb_version: v2.0.0
+            duckdb_commit: d54cbbe3df17e8e5ce68312f483b4155836112aa
+            cli_asset: duckdb-cli-linux-amd64.tar.gz
+          - duckdb_version: v1.5.6
+            duckdb_commit: 069cc9f9b5be802405797faecc284961b07c70ef
+            cli_asset: duckdb_cli-linux-amd64.zip
     # Match the supported browser-dependency image for pinned Playwright 1.56.1.
     runs-on: ubuntu-24.04
     steps:
@@ -26,20 +37,26 @@ jobs:
           node-version: '22'
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - name: Build against DuckDB 1.5.6
+      - name: Build against DuckDB ${{ matrix.duckdb_version }}
         run: |
           git submodule update --init --depth 1 duckdb
+          git -C duckdb fetch origin "${{ matrix.duckdb_commit }}" --depth 1
+          git -C duckdb checkout --detach "${{ matrix.duckdb_commit }}"
           cmake -S duckdb -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DEXTENSION_STATIC_BUILD=ON -DBUILD_UNITTESTS=OFF -DBUILD_SHELL=OFF \
-            -DDUCKDB_EXTENSION_CONFIGS="$PWD/extension_config.cmake" -DOVERRIDE_GIT_DESCRIBE=v1.5.6
+            -DDUCKDB_EXTENSION_CONFIGS="$PWD/extension_config.cmake" -DOVERRIDE_GIT_DESCRIBE=${{ matrix.duckdb_version }}
           cmake --build build/release --target miniplot_loadable_extension -j 2
       - name: Verify SQL, JavaScript inputs, file output and metadata
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p build/validation
-          gh release download v1.5.6 --repo duckdb/duckdb --pattern duckdb_cli-linux-amd64.zip --dir build/validation
-          unzip -q build/validation/duckdb_cli-linux-amd64.zip -d build/validation
+          gh release download "${{ matrix.duckdb_version }}" --repo duckdb/duckdb --pattern "${{ matrix.cli_asset }}" --dir build/validation
+          if [[ "${{ matrix.duckdb_version }}" == "v1.5.6" ]]; then
+            unzip -q "build/validation/${{ matrix.cli_asset }}" -d build/validation
+          else
+            tar -xzf "build/validation/${{ matrix.cli_asset }}" -C build/validation
+          fi
           python3 test/native_integration.py --duckdb build/validation/duckdb \
             --extension build/release/extension/miniplot/miniplot.duckdb_extension
           python3 test/additional_integration.py --duckdb build/validation/duckdb \

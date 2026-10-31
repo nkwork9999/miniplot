@@ -1,0 +1,82 @@
+# name: test/sql/charts_reports.test
+# group: [sql]
+
+require miniplot
+
+# All ten new chart families execute through the loaded extension.
+query I
+SELECT count(*) FROM (VALUES
+  (pie_chart_html(['A','B'], [1.0,2.0], 'Shares')),
+  (donut_chart_html(['A','B'], [1.0,2.0], 'Shares')),
+  (horizontal_bar_chart_html(['A','B'], [1.0,2.0], 'Categories')),
+  (violin_chart_html([1.0,2.0,2.0], 'Distribution')),
+  (bubble_chart_html([1.0,2.0], [3.0,4.0], [5.0,6.0], 'Bubbles')),
+  (heatmap_chart_html([1.0,2.0], [3.0,4.0], [[5.0,6.0],[7.0,8.0]], 'Grid')),
+  (contour_chart_html([1.0,2.0], [3.0,4.0], [[5.0,6.0],[7.0,8.0]], 'Grid')),
+  (step_chart_html([1.0,2.0], [3.0,4.0], 'Steps')),
+  (radar_chart_html(['A','B'], [1.0,2.0], 'Scores')),
+  (scatter_gl_chart_html([1.0,2.0], [3.0,4.0], 'WebGL'))
+) t(html) WHERE contains(html, 'Plotly.newPlot');
+----
+10
+
+query I
+SELECT contains(line_chart_html([DATE '2026-01-01'], [0.1], 'Time'), '2026-01-01') AND contains(area_chart_html([TIMESTAMPTZ '2026-01-01 09:00:00+09'], [0.1], 'Time'), '2026-01-01 00:00:00');
+----
+true
+
+query I
+SELECT count(*) FROM (SELECT scatter_gl_chart_html([i::DOUBLE], [0.1], 'row') AS html FROM range(4097) t(i) WHERE i % 2 = 0) WHERE contains(html, 'scattergl');
+----
+2049
+
+statement error
+SELECT heatmap_chart_html([1.0,2.0], [3.0,4.0], [[1.0],[2.0]], 'bad');
+----
+Grid column count must match x length
+
+query I
+SELECT TRY(pie_chart_html(['A'], [-1.0], 'bad')) IS NULL;
+----
+true
+
+query I
+SELECT count(*) FROM (SELECT TRY(violin_chart_html(samples, 'Distribution')) AS html FROM (VALUES ([1.0]), (['NaN'::DOUBLE]), (NULL::DOUBLE[]), ([2.0])) t(samples)) WHERE html IS NOT NULL;
+----
+2
+
+query II
+SELECT contains(html, '&lt;script&gt;'), contains(html, 'id="miniplot-report"') FROM (SELECT chart_report_html('{"title":"Summary","sections":[{"text":"<script>"}]}') AS html);
+----
+true	true
+
+query I
+SELECT TRY(chart_report_html('{"title":"x","sections":[{"text":"ok","layout":[]}]}')) IS NULL;
+----
+true
+
+query I
+SELECT chart_report_html(NULL) IS NULL AND scatter_gl_chart_html(NULL::DOUBLE[], [1.0], 'x') IS NULL;
+----
+true
+
+statement error
+SELECT scatter_chart_html([DATE '-infinity'], [1.0], 'bad');
+----
+Chart dates must be finite
+
+statement error
+SELECT line_chart_html([TIMESTAMP 'infinity'], [1.0], 'bad');
+----
+Chart timestamps must be finite
+
+query I
+SELECT 42;
+----
+42
+
+# Documentation and execution metadata for every new overload.
+query III
+SELECT count(*), count(*) FILTER (WHERE description IS NULL OR description = '' OR len(examples) = 0 OR len(parameters) != len(parameter_types)), count(*) FILTER (WHERE has_side_effects = ends_with(function_name, '_html')) FROM duckdb_functions() WHERE function_name IN ('pie_chart','pie_chart_html','donut_chart','donut_chart_html','horizontal_bar_chart','horizontal_bar_chart_html','violin_chart','violin_chart_html','bubble_chart','bubble_chart_html','heatmap_chart','heatmap_chart_html','contour_chart','contour_chart_html','step_chart','step_chart_html','radar_chart','radar_chart_html','scatter_gl_chart','scatter_gl_chart_html','chart_report','chart_report_html','chart_export');
+----
+33	0	0
