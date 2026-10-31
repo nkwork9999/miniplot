@@ -23,3 +23,8 @@ it does not load Plotly or claim browser rendering coverage.
 The native checks also verify numeric/date/time line and area axes, unequal
 sampling intervals, near-adjacent doubles, very small/large finite values, invalid
 rows with TRY recovery, filtered batches, file output and runnable catalog examples.
+
+Histogram and box-chart checks verify duplicate samples and DOUBLE precision in
+the generated Plotly trace, NULL/NaN/infinite/empty input handling, TRY recovery,
+filtered batches, per-row temporary paths, and file/HTML output equivalence.
+They inspect trace inputs rather than Plotly's rendered histogram/quartile results.

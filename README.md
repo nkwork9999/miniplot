@@ -8,7 +8,7 @@ Interactive chart visualization extension for DuckDB - faster than pandas with P
 
 Replace multiple libraries (pandas, matplotlib, seaborn, plotly) with a single tool. No more context switching, no more complex workflows.
 
-- 📊 **Multiple chart types**: Bar, Line, Scatter, Area, and 3D Scatter charts
+- 📊 **Multiple chart types**: Bar, Line, Scatter, Area, Histogram, Box, and 3D Scatter charts
 - 🌐 **Browser-based rendering**: Charts open in your default web browser
 - 🔌 **Internet required**: Initial chart rendering requires connection (Plotly.js CDN)
 
@@ -179,6 +179,31 @@ WHERE function_name IN ('plotly_new', 'plotly_new_html', 'scatter_chart', 'scatt
 
 Functions that write files or launch a browser are marked as having side effects.
 The `*_html` functions are pure and support `TRY(...)` for invalid row inputs.
+
+### Distribution charts: histograms and box plots
+
+Use `histogram_chart(samples, title [, output_path])` for a frequency distribution
+or `box_chart(samples, title [, output_path])` for a box-and-whisker plot.
+`histogram_chart_html(samples, title)` and `box_chart_html(samples, title)` return
+HTML without file or browser side effects.
+
+```sql
+SELECT histogram_chart([1.0, 2.0, 2.0, 3.0, 8.0], 'Frequency', 'tmp');
+SELECT box_chart_html([1.0, 2.0, 2.0, 3.0, 8.0], 'Spread');
+
+-- Aggregate raw observations, retaining duplicates.
+SELECT histogram_chart(list(amount), 'Sales distribution', 'tmp') FROM sales;
+```
+
+These functions preserve every sample, including duplicates, using round-trip
+DOUBLE serialization. Plotly chooses histogram bins and computes box-plot
+quartiles and outliers in the browser. For explicit bins or a different quartile
+method, use `plotly_new` with custom trace options. These are visualizations of
+raw samples; they do not return a table of statistical results.
+
+Samples must be a nonempty numeric array with finite, non-NULL elements.
+SQL NULL arguments return NULL; invalid inputs to HTML variants support `TRY`.
+The same DOUBLE precision and CDN requirements as other charts apply.
 
 ### Basic Charts
 

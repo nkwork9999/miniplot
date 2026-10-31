@@ -309,6 +309,41 @@ static void TypedChartFunction(DataChunk &args, ExpressionState &state, Vector &
 	TypedChartExecute<RETURN_HTML, KIND>(args, result);
 }
 
+// Distribution charts keep raw samples; Plotly performs binning/quartile calculation.
+template <bool RETURN_HTML, bool HISTOGRAM>
+static void DistributionChartFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	result.SetVectorType(VectorType::FLAT_VECTOR);
+	for (idx_t row = 0; row < args.size(); row++) {
+		if (RowHasNull(args, row)) {
+			result.SetValue(row, Value());
+			continue;
+		}
+		auto samples = ExtractDoubleList(args.data[0], row);
+		if (samples.empty()) {
+			throw InvalidInputException("Data arrays cannot be empty");
+		}
+		string values = "[";
+		for (idx_t i = 0; i < samples.size(); i++) {
+			if (i) {
+				values += ',';
+			}
+			values += NumberLabel(samples[i]);
+		}
+		values += ']';
+		auto title = args.data[1].GetValue(row).ToString();
+		auto data =
+		    HISTOGRAM ? "[{\"type\":\"histogram\",\"x\":" + values + "}]" : "[{\"type\":\"box\",\"y\":" + values + "}]";
+		auto layout = "{\"title\":{\"text\":" + QuoteJSON(title) + "}}";
+		auto html = GeneratePlotlyHTML(data, layout, "{\"responsive\":true}", title);
+		if (RETURN_HTML) {
+			result.SetValue(row, Value(html));
+		} else {
+			auto path = args.ColumnCount() == 3 ? args.data[2].GetValue(row).ToString() : "";
+			SaveChartHTML(html, path, result, row);
+		}
+	}
+}
+
 // Generic chart creation with path control
 static void CreateChartWithPath(const std::vector<string> &x_data, const std::vector<double> &y_data,
                                 const string &title, const string &chart_type, const string &output_path_arg,
@@ -940,6 +975,31 @@ static vector<CreateScalarFunctionInfo> MiniplotFunctions() {
 	    {"x", "y", "z", "timestamps", "title", "output_path"}, dt + file, "scatter_3d_chart" + et + ", 'tmp')", true);
 	add("scatter_3d_chart_html", {numbers, numbers, numbers, labels, text}, Scatter3DChartHTMLWithTimestampFunction,
 	    {"x", "y", "z", "timestamps", "title"}, dt + html, "scatter_3d_chart_html" + et + ")", false);
+
+	struct DistributionChart {
+		const char *name;
+		const char *description;
+		scalar_function_t file;
+		scalar_function_t html;
+	};
+	for (const auto &chart :
+	     {DistributionChart {
+	          "histogram_chart",
+	          "Plot a histogram from nonempty finite numeric samples; Plotly automatically chooses bins.",
+	          DistributionChartFunction<false, true>, DistributionChartFunction<true, true>},
+	      DistributionChart {"box_chart",
+	                         "Plot a box-and-whisker chart from nonempty finite numeric samples; Plotly computes "
+	                         "quartiles and outliers.",
+	                         DistributionChartFunction<false, false>, DistributionChartFunction<true, false>}}) {
+		const string name = chart.name;
+		const string description = chart.description;
+		const string example = "([1.0, 2.0, 2.0, 4.0], 'Distribution'";
+		add(name, {numbers, text}, chart.file, {"samples", "title"}, description + browser, name + example + ")", true);
+		add(name, {numbers, text, text}, chart.file, {"samples", "title", "output_path"}, description + file,
+		    name + example + ", 'tmp')", true);
+		add(name + "_html", {numbers, text}, chart.html, {"samples", "title"}, description + html,
+		    name + "_html" + example + ")", false);
+	}
 
 	const string plotly = "Plot arbitrary Plotly traces from a JSON array of objects and a JSON layout object; "
 	                      "an optional JSON config object defaults to {}.";

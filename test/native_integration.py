@@ -159,6 +159,28 @@ def main():
         "([TIMESTAMP '2026-01-01'], [1.0])) t(x,y);"
     )
     assert [r["failed"] for r in failures] == [True] * 4 + [False]
+    for kind, trace_type, axis in [('histogram', 'histogram', 'x'), ('box', 'box', 'y')]:
+        samples = [0.1, 1.0000000000000002, 0.1, 1e-200, -1e200]
+        samples_sql = '[0.1, 1.0000000000000002, 0.1, 1e-200, -1e200]'
+        charts.append({
+            'name': kind + ' / precise samples',
+            'html': html(f"{kind}_chart_html({samples_sql}, 'Distribution')"),
+            'expected': [[{'type': trace_type, axis: samples}],
+                         {'title': {'text': 'Distribution'}}, {'responsive': True}],
+        })
+        invalid = sql(
+            f"SELECT TRY({kind}_chart_html(samples, 'Distribution')) IS NULL AS failed FROM (VALUES "
+            "([]::DOUBLE[]), ([NULL::DOUBLE]), (['NaN'::DOUBLE]), (['Infinity'::DOUBLE]), ([1.0])) t(samples);"
+        )
+        assert [r['failed'] for r in invalid] == [True] * 4 + [False]
+        assert sql(f"SELECT {kind}_chart_html(NULL::DOUBLE[], 'Distribution') IS NULL AS n;")[0]['n']
+        assert sql(f"SELECT {kind}_chart_html([1.0], NULL) IS NULL AS n;")[0]['n']
+        batch = sql(
+            f"SELECT count(*) AS n FROM (SELECT {kind}_chart_html([i::DOUBLE], 'Distribution') AS html "
+            "FROM range(4097) t(i) WHERE i % 2 = 0) WHERE html LIKE '%Plotly.newPlot%';"
+        )
+        assert batch[0]['n'] == 2049
+
     subprocess.run(
         ["node", str(Path(__file__).with_name("plotly-output.cjs"))], input=json.dumps(charts), text=True, check=True
     )
@@ -188,14 +210,24 @@ def main():
             assert Path(output).read_text() == html(
                 f"{kind}_chart_html([TIMESTAMP '2026-01-01 10:00:00.123456'], [0.1], 'Time')")
 
+        for kind in ['histogram', 'box']:
+            output = str(Path(directory) / (kind + '.html'))
+            sql(f"SELECT {kind}_chart([0.1, 1.0000000000000002, 0.1], 'Distribution', {literal(output)});")
+            assert Path(output).read_text() == html(
+                f"{kind}_chart_html([0.1, 1.0000000000000002, 0.1], 'Distribution')")
+            generated = sql(f"SELECT {kind}_chart([i::DOUBLE], 'Distribution', 'tmp') AS path FROM range(3) t(i);")
+            assert len({r['path'] for r in generated}) == 3
+            for row in generated:
+                Path(row['path']).unlink()
+
     metadata = sql(
         "SELECT function_name, parameters, parameter_types, description, examples, categories "
         "FROM duckdb_functions() WHERE function_name IN "
         "('miniplot','miniplot_openssl_version','bar_chart','bar_chart_html','line_chart','line_chart_html',"
         "'area_chart','area_chart_html','scatter_chart','scatter_chart_html','scatter_3d_chart',"
-        "'scatter_3d_chart_html','plotly_new','plotly_new_html');"
+        "'scatter_3d_chart_html','plotly_new','plotly_new_html','histogram_chart','histogram_chart_html','box_chart','box_chart_html');"
     )
-    assert len({r["function_name"] for r in metadata}) == 14
+    assert len({r["function_name"] for r in metadata}) == 18
     for row in metadata:
         assert row["description"] and row["examples"] and row["categories"], row
         assert len(row["parameters"]) == len(row["parameter_types"]), row
