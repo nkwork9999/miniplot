@@ -19,3 +19,7 @@ This executes SQL and the generated JavaScript, verifies all 16 date/numeric axi
 combinations, checks custom and temporary output paths, and executes every pure
 catalog example. The JavaScript check records the arguments delivered to Plotly;
 it does not load Plotly or claim browser rendering coverage.
+
+The native checks also verify numeric/date/time line and area axes, unequal
+sampling intervals, near-adjacent doubles, very small/large finite values, invalid
+rows with TRY recovery, filtered batches, file output and runnable catalog examples.
