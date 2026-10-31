@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Run against a built extension and its matching DuckDB CLI; no Python packages needed."""
+
 import argparse
 import json
 from pathlib import Path
@@ -43,6 +44,7 @@ def main():
         "showlegend": True,
         "__proto__": {"polluted": True},
     }
+    layout["title"]["text"] += chr(127)
     config = {"responsive": False, "displayModeBar": False}
     values = ",".join(literal(json.dumps(x, ensure_ascii=False)) for x in [data, layout, config])
     charts.append(
@@ -113,29 +115,39 @@ def main():
     # Numeric and temporal line/area axes retain spacing, precision and UTC semantics.
     precise_axis = ("[0.1, 1.2345678901234567]", [0.1, 1.2345678901234567], "linear")
     for kind, mode in [("line", "lines+markers"), ("area", "lines")]:
-        for x_expr, x, x_type in axes + [precise_axis,
-                                         ("[1.0000000000000002, 1e-200]", [1.0000000000000002, 1e-200], "linear"),
-                                         ("[9007199254740991.0, -1e200]", [9007199254740991, -1e200], "linear")]:
+        for x_expr, x, x_type in axes + [
+            precise_axis,
+            ("[1.0000000000000002, 1e-200]", [1.0000000000000002, 1e-200], "linear"),
+            ("[9007199254740991.0, -1e200]", [9007199254740991, -1e200], "linear"),
+        ]:
             trace = {"type": "scatter", "mode": mode, "x": x, "y": [0.1, 1.2345678901234567]}
             if kind == "area":
                 trace["fill"] = "tozeroy"
-            charts.append({
-                "name": kind + " / " + x_expr,
-                "html": html(f"{kind}_chart_html({x_expr}, [0.1, 1.2345678901234567], 'Time')"),
-                "expected": [[trace],
-                             {"title": {"text": "Time"}, "xaxis": {"type": x_type}, "yaxis": {"type": "linear"}},
-                             {"responsive": True}],
-            })
+            charts.append(
+                {
+                    "name": kind + " / " + x_expr,
+                    "html": html(f"{kind}_chart_html({x_expr}, [0.1, 1.2345678901234567], 'Time')"),
+                    "expected": [
+                        [trace],
+                        {"title": {"text": "Time"}, "xaxis": {"type": x_type}, "yaxis": {"type": "linear"}},
+                        {"responsive": True},
+                    ],
+                }
+            )
         trace = {"type": "scatter", "mode": mode, "x": [1, 2, 10], "y": [3, 4, 5]}
         if kind == "area":
             trace["fill"] = "tozeroy"
-        charts.append({
-            "name": kind + " / uneven numeric intervals",
-            "html": html(f"{kind}_chart_html([1.0, 2.0, 10.0], [3.0, 4.0, 5.0], 'Samples')"),
-            "expected": [[trace],
-                         {"title": {"text": "Samples"}, "xaxis": {"type": "linear"}, "yaxis": {"type": "linear"}},
-                         {"responsive": True}],
-        })
+        charts.append(
+            {
+                "name": kind + " / uneven numeric intervals",
+                "html": html(f"{kind}_chart_html([1.0, 2.0, 10.0], [3.0, 4.0, 5.0], 'Samples')"),
+                "expected": [
+                    [trace],
+                    {"title": {"text": "Samples"}, "xaxis": {"type": "linear"}, "yaxis": {"type": "linear"}},
+                    {"responsive": True},
+                ],
+            }
+        )
         invalid = sql(
             f"SELECT TRY({kind}_chart_html(x, y, 'Time')) IS NULL AS failed FROM (VALUES "
             "([NULL::TIMESTAMP], [1.0]), ([TIMESTAMP 'infinity'], [1.0]), "
@@ -151,7 +163,6 @@ def main():
         )
         assert batch[0]["n"] == 2049
 
-
     failures = sql(
         "SELECT TRY(scatter_chart_html(x, y, 'Time')) IS NULL AS failed FROM (VALUES "
         "([NULL::TIMESTAMP], [1.0]), ([TIMESTAMP 'infinity'], [1.0]), "
@@ -162,12 +173,17 @@ def main():
     for kind, trace_type, axis in [('histogram', 'histogram', 'x'), ('box', 'box', 'y')]:
         samples = [0.1, 1.0000000000000002, 0.1, 1e-200, -1e200]
         samples_sql = '[0.1, 1.0000000000000002, 0.1, 1e-200, -1e200]'
-        charts.append({
-            'name': kind + ' / precise samples',
-            'html': html(f"{kind}_chart_html({samples_sql}, 'Distribution')"),
-            'expected': [[{'type': trace_type, axis: samples}],
-                         {'title': {'text': 'Distribution'}}, {'responsive': True}],
-        })
+        charts.append(
+            {
+                'name': kind + ' / precise samples',
+                'html': html(f"{kind}_chart_html({samples_sql}, 'Distribution')"),
+                'expected': [
+                    [{'type': trace_type, axis: samples}],
+                    {'title': {'text': 'Distribution'}},
+                    {'responsive': True},
+                ],
+            }
+        )
         invalid = sql(
             f"SELECT TRY({kind}_chart_html(samples, 'Distribution')) IS NULL AS failed FROM (VALUES "
             "([]::DOUBLE[]), ([NULL::DOUBLE]), (['NaN'::DOUBLE]), (['Infinity'::DOUBLE]), ([1.0])) t(samples);"
@@ -208,13 +224,15 @@ def main():
             expression = f"{kind}_chart([TIMESTAMP '2026-01-01 10:00:00.123456'], [0.1], 'Time', {literal(output)})"
             sql('SELECT ' + expression + ';')
             assert Path(output).read_text() == html(
-                f"{kind}_chart_html([TIMESTAMP '2026-01-01 10:00:00.123456'], [0.1], 'Time')")
+                f"{kind}_chart_html([TIMESTAMP '2026-01-01 10:00:00.123456'], [0.1], 'Time')"
+            )
 
         for kind in ['histogram', 'box']:
             output = str(Path(directory) / (kind + '.html'))
             sql(f"SELECT {kind}_chart([0.1, 1.0000000000000002, 0.1], 'Distribution', {literal(output)});")
             assert Path(output).read_text() == html(
-                f"{kind}_chart_html([0.1, 1.0000000000000002, 0.1], 'Distribution')")
+                f"{kind}_chart_html([0.1, 1.0000000000000002, 0.1], 'Distribution')"
+            )
             generated = sql(f"SELECT {kind}_chart([i::DOUBLE], 'Distribution', 'tmp') AS path FROM range(3) t(i);")
             assert len({r['path'] for r in generated}) == 3
             for row in generated:

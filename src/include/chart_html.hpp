@@ -38,7 +38,7 @@ inline string EscapeString(const string &input) {
 			output += "\\x3E";
 			break;
 		default:
-			if (static_cast<unsigned char>(c) < 32) {
+			if (static_cast<unsigned char>(c) < 32 || c == 127) {
 				const char *hex = "0123456789abcdef";
 				auto byte = static_cast<unsigned char>(c);
 				output += "\\x";
@@ -73,7 +73,12 @@ inline string EscapeHTML(const string &input) {
 			out += "&#39;";
 			break;
 		default:
-			out += c;
+			if ((static_cast<unsigned char>(c) < 32 && c != '\n' && c != '\r' && c != '\t') || c == 127) {
+				// HTML cannot represent NUL/C0/DEL text; keep UTF-8 bytes intact.
+				out += "\xef\xbf\xbd";
+			} else {
+				out += c;
+			}
 		}
 	}
 	return out;
@@ -84,6 +89,19 @@ inline string NumberLabel(double value) {
 	stream.imbue(std::locale::classic());
 	stream << std::setprecision(std::numeric_limits<double>::max_digits10) << value;
 	return stream.str();
+}
+
+inline string NumberArrayJSON(const std::vector<double> &values) {
+	std::ostringstream out;
+	out.imbue(std::locale::classic());
+	out << std::setprecision(std::numeric_limits<double>::max_digits10) << '[';
+	for (size_t i = 0; i < values.size(); i++) {
+		if (i)
+			out << ',';
+		out << values[i];
+	}
+	out << ']';
+	return out.str();
 }
 
 inline string QuoteJSON(const string &input) {
@@ -109,7 +127,8 @@ inline string QuoteJSON(const string &input) {
 inline string GeneratePlotlyHTML(const string &data_json, const string &layout_json, const string &config_json,
                                  const string &title = "Miniplot") {
 	std::ostringstream html;
-	html << "<!DOCTYPE html>\n<html><head><meta charset=\"UTF-8\"><title>" << EscapeHTML(title)
+	html << "<!DOCTYPE html>\n<html><head><meta charset=\"UTF-8\"><meta name=\"generator\" content=\"miniplot\"><title>"
+	     << EscapeHTML(title)
 	     << "</title><style>body{margin:0;font-family:system-ui,sans-serif}#chart{width:100%;min-height:600px}</style>"
 	     << "</head><body><div id=\"chart\"></div>\n"
 	     << "<script src=\"https://cdn.plot.ly/plotly-2.27.0.min.js\"></script>\n<script>\n"
@@ -165,6 +184,7 @@ inline string GenerateHTML(const std::vector<string> &x_data, const std::vector<
 <html>
 <head>
     <meta charset="UTF-8">
+    <meta name="generator" content="miniplot">
     <title>)"
 	     << EscapeHTML(title) << R"(</title>
     <style>
@@ -250,6 +270,7 @@ inline string Generate3DScatterHTML(const std::vector<double> &x_data, const std
 <html>
 <head>
     <meta charset="UTF-8">
+    <meta name="generator" content="miniplot">
     <title>)"
 	     << EscapeHTML(title) << R"(</title>
     <style>
@@ -357,6 +378,7 @@ inline string Generate3DScatterHTMLWithTimestamp(const std::vector<double> &x_da
 <html>
 <head>
     <meta charset="UTF-8">
+    <meta name="generator" content="miniplot">
     <title>)"
 	     << EscapeHTML(title) << R"(</title>
     <style>

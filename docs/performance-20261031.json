@@ -1,0 +1,149 @@
+{
+  "date": "2026-10-31",
+  "baseline_commit": "1210228e3adf51ec128672038e5a40f49ea73ac5",
+  "before": {
+    "platform": "macOS-26.2-arm64-arm-64bit-Mach-O",
+    "processor": "arm64",
+    "duckdb": "v1.5.6 (Variegata) 069cc9f9b5",
+    "scope": "CLI startup + SQL aggregation + HTML generation; no browser rendering",
+    "measurements": [
+      {
+        "chart": "scatter",
+        "points": 100000,
+        "seconds": [
+          0.9516254580012173,
+          0.3779030829973635,
+          0.32159095800307114,
+          0.3529905420000432,
+          0.35009241700026905
+        ],
+        "median_seconds": 0.3529905420000432,
+        "html_bytes": 879500
+      },
+      {
+        "chart": "histogram",
+        "points": 100000,
+        "seconds": [
+          0.18935679200512823,
+          0.18776545899891062,
+          0.1912340829949244,
+          0.20116037499974482,
+          0.1954061249998631
+        ],
+        "median_seconds": 0.1912340829949244,
+        "html_bytes": 589409
+      },
+      {
+        "chart": "scatter",
+        "points": 1000000,
+        "seconds": [
+          4.688729083994986,
+          4.999298624999938,
+          4.490033082998707,
+          4.707463499995356,
+          5.3595641249994515
+        ],
+        "median_seconds": 4.707463499995356,
+        "html_bytes": 9789500
+      },
+      {
+        "chart": "histogram",
+        "points": 1000000,
+        "seconds": [
+          2.3536234159982996,
+          3.220629125004052,
+          3.5629342920001363,
+          2.869950250002148,
+          3.926517166000849
+        ],
+        "median_seconds": 3.220629125004052,
+        "html_bytes": 6889409
+      }
+    ]
+  },
+  "after": {
+    "platform": "macOS-26.2-arm64-arm-64bit-Mach-O",
+    "processor": "arm64",
+    "duckdb": "v1.5.6 (Variegata) 069cc9f9b5",
+    "scope": "CLI startup + SQL aggregation + HTML generation; no browser rendering",
+    "measurements": [
+      {
+        "chart": "scatter",
+        "points": 100000,
+        "seconds": [
+          1.3509671249994426,
+          0.26857587499398505,
+          0.2695943750004517,
+          0.3206010000067181,
+          0.307699249999132
+        ],
+        "median_seconds": 0.307699249999132,
+        "html_bytes": 879542
+      },
+      {
+        "chart": "histogram",
+        "points": 100000,
+        "seconds": [
+          0.17832245799945667,
+          0.1672071249995497,
+          0.16968229100166354,
+          0.17644812499929685,
+          0.17734041700168746
+        ],
+        "median_seconds": 0.17644812499929685,
+        "html_bytes": 589451
+      },
+      {
+        "chart": "scatter",
+        "points": 1000000,
+        "seconds": [
+          3.842848915999639,
+          4.205675917000917,
+          3.5182444579986623,
+          3.7093853749975096,
+          3.524677542001882
+        ],
+        "median_seconds": 3.7093853749975096,
+        "html_bytes": 9789542
+      },
+      {
+        "chart": "histogram",
+        "points": 1000000,
+        "seconds": [
+          1.8735642499959795,
+          1.8039503330001025,
+          1.9288736660018913,
+          2.0424390840053093,
+          2.146659999998519
+        ],
+        "median_seconds": 1.9288736660018913,
+        "html_bytes": 6889451
+      }
+    ]
+  },
+  "render": {
+    "scope": "One run per size; includes browser launch, local Plotly load and full-page PNG export; hardware/software dependent",
+    "measurements": [
+      {
+        "points": 100000,
+        "sql_seconds": 0.36240304200351237,
+        "chromium_png_seconds": 36.100141375005244,
+        "png_bytes": 17174,
+        "status": "success"
+      },
+      {
+        "points": 1000000,
+        "sql_seconds": 3.68078125,
+        "chromium_png_seconds": 54.32225745899975,
+        "png_bytes": 16571,
+        "status": "success"
+      }
+    ]
+  },
+  "notes": [
+    "Sequential five-run CLI medians include startup and SQL aggregation, not browser rendering.",
+    "Initial exploratory render run hit page.setContent 30000ms timeout; subsequent recorded run completed.",
+    "Chromium 141 / Playwright 1.56.1, SwiftShader software WebGL; timings are host/load dependent.",
+    "After HTML includes 42 bytes of generator metadata absent from the baseline."
+  ]
+}

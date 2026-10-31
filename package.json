@@ -1,0 +1,16 @@
+{
+  "name": "miniplot-tools",
+  "private": true,
+  "scripts": {
+    "test:browser": "node test/browser-export.cjs"
+  },
+  "dependencies": {
+    "playwright": "1.56.1",
+    "plotly.js-dist-min": "2.27.0",
+    "parse5": "7.3.0"
+  },
+  "devDependencies": {
+    "pdf-lib": "1.17.1",
+    "pngjs": "7.0.0"
+  }
+}

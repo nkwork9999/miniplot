@@ -14,6 +14,9 @@
 #include "yyjson.hpp"
 
 #include <openssl/opensslv.h>
+#include "duckdb/main/settings.hpp"
+#include <cerrno>
+#include <cstdio>
 
 #include <fstream>
 #include <sstream>
@@ -34,6 +37,11 @@
 #define getpid _getpid
 #else
 #include <unistd.h>
+#ifndef __EMSCRIPTEN__
+#include <spawn.h>
+#include <sys/wait.h>
+extern char **environ;
+#endif
 #endif
 
 namespace duckdb {
@@ -52,9 +60,7 @@ static std::vector<string> ExtractStringList(const Vector &list_vector, idx_t ro
 			if (children[i].IsNull()) {
 				throw InvalidInputException("Chart arrays cannot contain NULL elements");
 			}
-			{
-				result.push_back(children[i].ToString());
-			}
+			{ result.push_back(children[i].ToString()); }
 		}
 	} catch (const std::exception &e) {
 		throw InvalidInputException("Failed to extract string list: %s", e.what());
@@ -221,21 +227,23 @@ static string ScatterAxisJSON(const Value &values, bool &is_date) {
 	const auto &children = ListValue::GetChildren(values);
 	auto type = ListType::GetChildType(values.type()).id();
 	is_date = type != LogicalTypeId::DOUBLE;
-	string json = "[";
+	std::ostringstream json;
+	json.imbue(std::locale::classic());
+	json << std::setprecision(std::numeric_limits<double>::max_digits10) << '[';
 	for (idx_t i = 0; i < children.size(); i++) {
 		const auto &value = children[i];
 		if (value.IsNull()) {
 			throw InvalidInputException("Chart arrays cannot contain NULL elements");
 		}
 		if (i) {
-			json += ',';
+			json << ',';
 		}
 		if (type == LogicalTypeId::DOUBLE) {
 			auto number = value.GetValue<double>();
 			if (!std::isfinite(number)) {
 				throw InvalidInputException("Chart values must be finite");
 			}
-			json += NumberLabel(number);
+			json << number;
 		} else {
 			string label;
 			if (type == LogicalTypeId::DATE) {
@@ -254,10 +262,11 @@ static string ScatterAxisJSON(const Value &values, bool &is_date) {
 				// TIMESTAMP is a wall-clock value and keeps its original fields.
 				label = Timestamp::ToString(timestamp);
 			}
-			json += QuoteJSON(label);
+			json << QuoteJSON(label);
 		}
 	}
-	return json + ']';
+	json << ']';
+	return json.str();
 }
 
 enum class TypedChartKind { SCATTER, LINE, AREA };
@@ -322,14 +331,7 @@ static void DistributionChartFunction(DataChunk &args, ExpressionState &state, V
 		if (samples.empty()) {
 			throw InvalidInputException("Data arrays cannot be empty");
 		}
-		string values = "[";
-		for (idx_t i = 0; i < samples.size(); i++) {
-			if (i) {
-				values += ',';
-			}
-			values += NumberLabel(samples[i]);
-		}
-		values += ']';
+		auto values = NumberArrayJSON(samples);
 		auto title = args.data[1].GetValue(row).ToString();
 		auto data =
 		    HISTOGRAM ? "[{\"type\":\"histogram\",\"x\":" + values + "}]" : "[{\"type\":\"box\",\"y\":" + values + "}]";
@@ -343,6 +345,9 @@ static void DistributionChartFunction(DataChunk &args, ExpressionState &state, V
 		}
 	}
 }
+
+#include "additional_charts.hpp"
+#include "report_export.hpp"
 
 // Generic chart creation with path control
 static void CreateChartWithPath(const std::vector<string> &x_data, const std::vector<double> &y_data,
@@ -857,6 +862,16 @@ static vector<CreateScalarFunctionInfo> MiniplotFunctions() {
 	               const string &description, const string &example, bool writes_file, bool can_throw = true) {
 		ScalarFunction function(name, types, LogicalType::VARCHAR, callback);
 		if (writes_file) {
+			function.SetFunctionCallback([callback](DataChunk &args, ExpressionState &state, Vector &result) {
+				for (idx_t row = 0; row < args.size(); row++) {
+					if (!RowHasNull(args, row)) {
+						if (!Settings::Get<EnableExternalAccessSetting>(state.GetContext()))
+							throw PermissionException("Chart file and browser functions require external access");
+						break;
+					}
+				}
+				callback(args, state, result);
+			});
 			function.SetVolatile();
 		}
 		if (can_throw) {
@@ -1001,6 +1016,106 @@ static vector<CreateScalarFunctionInfo> MiniplotFunctions() {
 		    name + "_html" + example + ")", false);
 	}
 
+	add("pie_chart", {labels, numbers, text}, ExtraChartFunction<false, ExtraChartKind::PIE>,
+	    {"labels", "values", "title"}, "Pie chart with nonnegative values and a positive total." + browser,
+	    "pie_chart(['A','B'], [1.0,2.0], 'Example')", true);
+	add("pie_chart_html", {labels, numbers, text}, ExtraChartFunction<true, ExtraChartKind::PIE>,
+	    {"labels", "values", "title"}, "Pie chart with nonnegative values and a positive total." + html,
+	    "pie_chart_html(['A','B'], [1.0,2.0], 'Example')", false);
+	add("pie_chart", {labels, numbers, text, text}, ExtraChartFunction<false, ExtraChartKind::PIE>,
+	    {"labels", "values", "title", "output_path"}, "Pie chart with nonnegative values and a positive total." + file,
+	    "pie_chart(['A','B'], [1.0,2.0], 'Example', 'tmp')", true);
+	add("donut_chart", {labels, numbers, text}, ExtraChartFunction<false, ExtraChartKind::DONUT>,
+	    {"labels", "values", "title"}, "Donut chart with nonnegative values and a positive total." + browser,
+	    "donut_chart(['A','B'], [1.0,2.0], 'Example')", true);
+	add("donut_chart_html", {labels, numbers, text}, ExtraChartFunction<true, ExtraChartKind::DONUT>,
+	    {"labels", "values", "title"}, "Donut chart with nonnegative values and a positive total." + html,
+	    "donut_chart_html(['A','B'], [1.0,2.0], 'Example')", false);
+	add("donut_chart", {labels, numbers, text, text}, ExtraChartFunction<false, ExtraChartKind::DONUT>,
+	    {"labels", "values", "title", "output_path"},
+	    "Donut chart with nonnegative values and a positive total." + file,
+	    "donut_chart(['A','B'], [1.0,2.0], 'Example', 'tmp')", true);
+	add("horizontal_bar_chart", {labels, numbers, text}, ExtraChartFunction<false, ExtraChartKind::HORIZONTAL_BAR>,
+	    {"labels", "values", "title"}, "Horizontal bar chart." + browser,
+	    "horizontal_bar_chart(['A','B'], [1.0,2.0], 'Example')", true);
+	add("horizontal_bar_chart_html", {labels, numbers, text}, ExtraChartFunction<true, ExtraChartKind::HORIZONTAL_BAR>,
+	    {"labels", "values", "title"}, "Horizontal bar chart." + html,
+	    "horizontal_bar_chart_html(['A','B'], [1.0,2.0], 'Example')", false);
+	add("horizontal_bar_chart", {labels, numbers, text, text},
+	    ExtraChartFunction<false, ExtraChartKind::HORIZONTAL_BAR>, {"labels", "values", "title", "output_path"},
+	    "Horizontal bar chart." + file, "horizontal_bar_chart(['A','B'], [1.0,2.0], 'Example', 'tmp')", true);
+	add("violin_chart", {numbers, text}, ExtraChartFunction<false, ExtraChartKind::VIOLIN>, {"samples", "title"},
+	    "Violin distribution chart of raw numeric samples." + browser, "violin_chart([1.0,2.0,2.0], 'Example')", true);
+	add("violin_chart_html", {numbers, text}, ExtraChartFunction<true, ExtraChartKind::VIOLIN>, {"samples", "title"},
+	    "Violin distribution chart of raw numeric samples." + html, "violin_chart_html([1.0,2.0,2.0], 'Example')",
+	    false);
+	add("violin_chart", {numbers, text, text}, ExtraChartFunction<false, ExtraChartKind::VIOLIN>,
+	    {"samples", "title", "output_path"}, "Violin distribution chart of raw numeric samples." + file,
+	    "violin_chart([1.0,2.0,2.0], 'Example', 'tmp')", true);
+	add("bubble_chart", {numbers, numbers, numbers, text}, ExtraChartFunction<false, ExtraChartKind::BUBBLE>,
+	    {"x", "y", "sizes", "title"}, "Bubble chart; sizes are nonnegative marker diameters in pixels." + browser,
+	    "bubble_chart([1.0,2.0], [3.0,4.0], [5.0,6.0], 'Example')", true);
+	add("bubble_chart_html", {numbers, numbers, numbers, text}, ExtraChartFunction<true, ExtraChartKind::BUBBLE>,
+	    {"x", "y", "sizes", "title"}, "Bubble chart; sizes are nonnegative marker diameters in pixels." + html,
+	    "bubble_chart_html([1.0,2.0], [3.0,4.0], [5.0,6.0], 'Example')", false);
+	add("bubble_chart", {numbers, numbers, numbers, text, text}, ExtraChartFunction<false, ExtraChartKind::BUBBLE>,
+	    {"x", "y", "sizes", "title", "output_path"},
+	    "Bubble chart; sizes are nonnegative marker diameters in pixels." + file,
+	    "bubble_chart([1.0,2.0], [3.0,4.0], [5.0,6.0], 'Example', 'tmp')", true);
+	add("heatmap_chart", {numbers, numbers, LogicalType::LIST(numbers), text},
+	    ExtraChartFunction<false, ExtraChartKind::HEATMAP>, {"x", "y", "z", "title"},
+	    "Heatmap; increasing x/y axes, z rows match y and columns match x." + browser,
+	    "heatmap_chart([1.0,2.0], [3.0,4.0], [[5.0,6.0],[7.0,8.0]], 'Example')", true);
+	add("heatmap_chart_html", {numbers, numbers, LogicalType::LIST(numbers), text},
+	    ExtraChartFunction<true, ExtraChartKind::HEATMAP>, {"x", "y", "z", "title"},
+	    "Heatmap; increasing x/y axes, z rows match y and columns match x." + html,
+	    "heatmap_chart_html([1.0,2.0], [3.0,4.0], [[5.0,6.0],[7.0,8.0]], 'Example')", false);
+	add("heatmap_chart", {numbers, numbers, LogicalType::LIST(numbers), text, text},
+	    ExtraChartFunction<false, ExtraChartKind::HEATMAP>, {"x", "y", "z", "title", "output_path"},
+	    "Heatmap; increasing x/y axes, z rows match y and columns match x." + file,
+	    "heatmap_chart([1.0,2.0], [3.0,4.0], [[5.0,6.0],[7.0,8.0]], 'Example', 'tmp')", true);
+	add("contour_chart", {numbers, numbers, LogicalType::LIST(numbers), text},
+	    ExtraChartFunction<false, ExtraChartKind::CONTOUR>, {"x", "y", "z", "title"},
+	    "Contour chart; increasing x/y axes, z rows match y and columns match x." + browser,
+	    "contour_chart([1.0,2.0], [3.0,4.0], [[5.0,6.0],[7.0,8.0]], 'Example')", true);
+	add("contour_chart_html", {numbers, numbers, LogicalType::LIST(numbers), text},
+	    ExtraChartFunction<true, ExtraChartKind::CONTOUR>, {"x", "y", "z", "title"},
+	    "Contour chart; increasing x/y axes, z rows match y and columns match x." + html,
+	    "contour_chart_html([1.0,2.0], [3.0,4.0], [[5.0,6.0],[7.0,8.0]], 'Example')", false);
+	add("contour_chart", {numbers, numbers, LogicalType::LIST(numbers), text, text},
+	    ExtraChartFunction<false, ExtraChartKind::CONTOUR>, {"x", "y", "z", "title", "output_path"},
+	    "Contour chart; increasing x/y axes, z rows match y and columns match x." + file,
+	    "contour_chart([1.0,2.0], [3.0,4.0], [[5.0,6.0],[7.0,8.0]], 'Example', 'tmp')", true);
+	add("step_chart", {numbers, numbers, text}, ExtraChartFunction<false, ExtraChartKind::STEP>, {"x", "y", "title"},
+	    "Step chart with horizontal-then-vertical segments; input order is preserved." + browser,
+	    "step_chart([1.0,2.0], [3.0,4.0], 'Example')", true);
+	add("step_chart_html", {numbers, numbers, text}, ExtraChartFunction<true, ExtraChartKind::STEP>,
+	    {"x", "y", "title"}, "Step chart with horizontal-then-vertical segments; input order is preserved." + html,
+	    "step_chart_html([1.0,2.0], [3.0,4.0], 'Example')", false);
+	add("step_chart", {numbers, numbers, text, text}, ExtraChartFunction<false, ExtraChartKind::STEP>,
+	    {"x", "y", "title", "output_path"},
+	    "Step chart with horizontal-then-vertical segments; input order is preserved." + file,
+	    "step_chart([1.0,2.0], [3.0,4.0], 'Example', 'tmp')", true);
+	add("radar_chart", {labels, numbers, text}, ExtraChartFunction<false, ExtraChartKind::RADAR>,
+	    {"labels", "values", "title"}, "Radar chart with nonnegative radial values." + browser,
+	    "radar_chart(['A','B'], [1.0,2.0], 'Example')", true);
+	add("radar_chart_html", {labels, numbers, text}, ExtraChartFunction<true, ExtraChartKind::RADAR>,
+	    {"labels", "values", "title"}, "Radar chart with nonnegative radial values." + html,
+	    "radar_chart_html(['A','B'], [1.0,2.0], 'Example')", false);
+	add("radar_chart", {labels, numbers, text, text}, ExtraChartFunction<false, ExtraChartKind::RADAR>,
+	    {"labels", "values", "title", "output_path"}, "Radar chart with nonnegative radial values." + file,
+	    "radar_chart(['A','B'], [1.0,2.0], 'Example', 'tmp')", true);
+	add("scatter_gl_chart", {numbers, numbers, text}, ExtraChartFunction<false, ExtraChartKind::SCATTER_GL>,
+	    {"x", "y", "title"}, "WebGL scatter chart for large point sets; requires browser WebGL support." + browser,
+	    "scatter_gl_chart([1.0,2.0], [3.0,4.0], 'Example')", true);
+	add("scatter_gl_chart_html", {numbers, numbers, text}, ExtraChartFunction<true, ExtraChartKind::SCATTER_GL>,
+	    {"x", "y", "title"}, "WebGL scatter chart for large point sets; requires browser WebGL support." + html,
+	    "scatter_gl_chart_html([1.0,2.0], [3.0,4.0], 'Example')", false);
+	add("scatter_gl_chart", {numbers, numbers, text, text}, ExtraChartFunction<false, ExtraChartKind::SCATTER_GL>,
+	    {"x", "y", "title", "output_path"},
+	    "WebGL scatter chart for large point sets; requires browser WebGL support." + file,
+	    "scatter_gl_chart([1.0,2.0], [3.0,4.0], 'Example', 'tmp')", true);
+
 	const string plotly = "Plot arbitrary Plotly traces from a JSON array of objects and a JSON layout object; "
 	                      "an optional JSON config object defaults to {}.";
 	const string pe = "('[{\"x\":[1,2],\"y\":[3,4],\"type\":\"scatter\"}]', '{\"title\":{\"text\":\"Example\"}}'";
@@ -1014,6 +1129,20 @@ static vector<CreateScalarFunctionInfo> MiniplotFunctions() {
 	    "plotly_new_html" + pe + ")", false);
 	add("plotly_new_html", {text, text, text}, PlotlyNewFunction<true>, {"data", "layout", "config"}, plotly + html,
 	    "plotly_new_html" + pe + ", '{\"responsive\":true}')", false);
+	add("chart_report_html", {text}, ReportFunction<true>, {"report"},
+	    "Return a narrative HTML report from a JSON object with title and nonempty sections; each section accepts "
+	    "heading/text and optional Plotly data/layout/config. Text is escaped; no raw HTML is accepted.",
+	    "chart_report_html('{\"title\":\"Summary\",\"sections\":[{\"heading\":\"Findings\",\"text\":\"Sales "
+	    "increased.\"}]}')",
+	    false);
+	add("chart_report", {text, text}, ReportFunction<false>, {"report", "output_path"},
+	    "Save a structured JSON narrative report as HTML; output_path uses the chart tmp/custom/browser contract.",
+	    "chart_report('{\"title\":\"Summary\",\"sections\":[{\"text\":\"Sales increased.\"}]}', 'tmp')", true);
+	add("chart_export", {text, text}, ExportFunction, {"html", "output_path"},
+	    "Render Miniplot HTML to PNG or PDF on a native host. Requires external access, Node.js, Playwright/Chromium, "
+	    "and MINIPLOT_EXPORTER pointing to scripts/export-chart.cjs. Returns the saved path; failures preserve "
+	    "existing output.",
+	    "chart_export(bar_chart_html(['A','B'], [1.0,2.0], 'Sales'), 'sales.png')", true);
 	return functions;
 }
 

@@ -23,6 +23,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
       - name: Build against DuckDB 1.5.6
         run: |
           git submodule update --init --depth 1 duckdb
@@ -39,3 +41,10 @@ jobs:
           unzip -q build/validation/duckdb_cli-linux-amd64.zip -d build/validation
           python3 test/native_integration.py --duckdb build/validation/duckdb \
             --extension build/release/extension/miniplot/miniplot.duckdb_extension
+          python3 test/additional_integration.py --duckdb build/validation/duckdb \
+            --extension build/release/extension/miniplot/miniplot.duckdb_extension --fixtures build/validation/charts
+          python3 test/report_export.py --duckdb build/validation/duckdb \
+            --extension build/release/extension/miniplot/miniplot.duckdb_extension --output build/validation/export
+          python3 test/large_integration.py --duckdb build/validation/duckdb \
+            --extension build/release/extension/miniplot/miniplot.duckdb_extension
+          npm run test:browser

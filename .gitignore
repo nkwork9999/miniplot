@@ -31,3 +31,5 @@ Thumbs.db
 *.db
 *.duckdb
 EOF
+node_modules/
+__pycache__/
