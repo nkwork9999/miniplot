@@ -1,7 +1,7 @@
 extension:
   name: miniplot
   description: SQL-driven interactive charts, narrative HTML reports, and optional native PNG/PDF export
-  version: 0.0.5
+  version: 0.0.6
   language: C++
   build: cmake
   license: MIT
@@ -61,3 +61,7 @@ docs:
     documented length and grid-shape validation. Measured serialization results,
     report JSON schema, source-build instructions and export setup are in the
     repository README and docs directory.
+
+    The source repository includes host-side Python classes for time-bin reduction, gap-
+    separated time series and fixed-boundary histogram counts. The Python module is
+    distributed as source and works with a host-provisioned DuckDB connection.
