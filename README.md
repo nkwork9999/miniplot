@@ -584,6 +584,8 @@ MIT License - see [LICENSE](LICENSE) file
 
 `TimeSeriesChart(connection).line(times, values, title="Sales", width=1200)` in `python/miniplot_embedded.py` returns HTML. Give it naive datetimes on the same time scale and finite observations. DuckDB retains the first, lowest, highest and last observation of each time bin, deduplicates them by input position and orders them chronologically. Equal timestamps retain input order.
 
+Use `segments(times, values, width=1200)` on the same chart to obtain reduced chronological segments separated by missing observations. For fixed boundaries, `Histogram(connection).count(values, edges)` returns counts for every bin, including empty bins, and two separate totals for missing and out-of-range samples. The last bin includes its right edge.
+
 Give each active caller its own connection with the matching extension loaded. With Python 3.10+,
 the `duckdb` package and the matching installed extension, run the integration tests from the repository root:
 
