@@ -1174,7 +1174,7 @@ std::string MiniplotExtension::Version() const {
 #ifdef EXT_VERSION_MINIPLOT
 	return EXT_VERSION_MINIPLOT;
 #else
-	return "";
+	return "0.0.6";
 #endif
 }
 

@@ -1,0 +1,51 @@
+name: Embedded API integration
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/checkout@v4
+        with:
+          repository: duckdb/duckdb
+          ref: d54cbbe3df17e8e5ce68312f483b4155836112aa
+          path: duckdb-source
+      - name: Install matching DuckDB wheel
+        run: python -m pip install duckdb==2.0.0
+      - name: Build the extension for this wheel
+        run: |
+          cmake -S duckdb-source -B build-embedded -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DDUCKDB_EXPLICIT_VERSION=v2.0.0 \
+            -DDUCKDB_EXTENSION_CONFIGS="$PWD/extension_config.cmake" \
+            -DBUILD_UNITTESTS=OFF -DBUILD_SHELL=OFF -DEXTENSION_STATIC_BUILD=OFF
+          cmake --build build-embedded --target miniplot_loadable_extension --parallel 2
+      - name: Test the embedded API against the freshly built extension
+        env:
+          MINIPLOT_TEST_EXTENSION: ${{ github.workspace }}/build-embedded/extension/miniplot/miniplot.duckdb_extension
+        run: |
+          python -X faulthandler - <<'PYTHON'
+          import os
+          import sys
+          import unittest
+
+          # Linux loadable extensions resolve DuckDB symbols from the Python wheel.
+          flags = sys.getdlopenflags()
+          sys.setdlopenflags(flags | os.RTLD_GLOBAL)
+          try:
+              import duckdb
+          finally:
+              sys.setdlopenflags(flags)
+          suite = unittest.defaultTestLoader.discover("python")
+          sys.exit(not unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful())
+          PYTHON
