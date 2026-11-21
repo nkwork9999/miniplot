@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="DuckDBの集計をグラフ、HTMLレポート、画像出力につなぐ可視化拡張。">
+<title>性能試験 · Miniplot</title><link rel="stylesheet" href="style.css">
+<script src="search.js" defer></script>
+</head>
+<body data-project="miniplot">
+<a class="skip" href="#main">本文へ移動</a>
+<header class="masthead"><a href="index.html" class="product">Miniplot</a>
+<a href="https://github.com/nkwork9999/miniplot">GitHub ↗</a></header>
+<div class="layout"><nav aria-label="ドキュメント"><a href="index.html">概要</a><a href="functions.html">SQL リファレンス</a><a href="python.html">Python 組み込み API</a><a href="guide.html">利用ガイド</a><a href="reports.html">レポートと組み込み</a><a href="performance.html" aria-current="page">性能試験</a></nav>
+<main id="main"><details class="toc" open><summary>このページの目次</summary><ul><li class="h2"><a href="#sql-aggregation-and-html-generation">SQL aggregation and HTML generation</a></li><li class="h2"><a href="#real-webgl-png-export">Real WebGL PNG export</a></li><li class="h2"><a href="#reproduce">Reproduce</a></li></ul></details><h1 id="performance-measurements-2026-10-31">Performance measurements: 2026-10-31</h1>
+<p>Measured on macOS 26.2 arm64 with the official DuckDB 1.5.6 CLI and matching
+SDK <code>069cc9f9b5be802405797faecc284961b07c70ef</code>, using Release loadable extensions.
+Baseline source is commit <code>1210228</code>. <a href="https://github.com/nkwork9999/miniplot/blob/e66d4aa6687a1fcad0bf6a18b447399b160d4959/docs/performance-20261031.json">Raw samples</a>
+include every repetition and generated HTML length.</p>
+<h2 id="sql-aggregation-and-html-generation">SQL aggregation and HTML generation</h2>
+<p>Each measurement launches the CLI, aggregates generated samples and returns the
+HTML length. Five repetitions were run sequentially per case; the table shows
+medians. Browser rendering is excluded. Numeric serialization reuses one classic
+locale stream per array rather than constructing a stream for each number.</p>
+<table>
+<thead>
+<tr>
+<th>Chart</th>
+<th style="text-align:right">Points</th>
+<th style="text-align:right">Before (s)</th>
+<th style="text-align:right">After (s)</th>
+<th style="text-align:right">Reduction</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Scatter</td>
+<td style="text-align:right">100,000</td>
+<td style="text-align:right">0.353</td>
+<td style="text-align:right">0.308</td>
+<td style="text-align:right">12.8%</td>
+</tr>
+<tr>
+<td>Histogram</td>
+<td style="text-align:right">100,000</td>
+<td style="text-align:right">0.191</td>
+<td style="text-align:right">0.176</td>
+<td style="text-align:right">7.7%</td>
+</tr>
+<tr>
+<td>Scatter</td>
+<td style="text-align:right">1,000,000</td>
+<td style="text-align:right">4.707</td>
+<td style="text-align:right">3.709</td>
+<td style="text-align:right">21.2%</td>
+</tr>
+<tr>
+<td>Histogram</td>
+<td style="text-align:right">1,000,000</td>
+<td style="text-align:right">3.221</td>
+<td style="text-align:right">1.929</td>
+<td style="text-align:right">40.1%</td>
+</tr>
+</tbody>
+</table>
+<p>The x samples are <code>i::DOUBLE</code>; scatter y samples are <code>(i % 100)::DOUBLE</code>.
+The measurement includes process startup, SQL aggregation and HTML serialization,
+so it does not isolate serializer CPU time. After HTML includes 42 bytes of new
+generator metadata. Precision and million-point retention are checked separately
+by the integration suites. No points are silently sampled.</p>
+<h2 id="real-webgl-png-export">Real WebGL PNG export</h2>
+<p>A separate single run per size generated <code>scatter_gl_chart</code> HTML and rendered it
+with local Plotly.js 2.27.0 in headless Chromium 141 / Playwright 1.56.1, using
+SwiftShader software WebGL. PNG export includes browser launch, Plotly load,
+drawing and full-page screenshot at a 1200-pixel viewport.</p>
+<table>
+<thead>
+<tr>
+<th style="text-align:right">Points</th>
+<th style="text-align:right">SQL to HTML (s)</th>
+<th style="text-align:right">Chromium to PNG (s)</th>
+<th style="text-align:right">PNG bytes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:right">100,000</td>
+<td style="text-align:right">0.362</td>
+<td style="text-align:right">36.100</td>
+<td style="text-align:right">17,174</td>
+</tr>
+<tr>
+<td style="text-align:right">1,000,000</td>
+<td style="text-align:right">3.681</td>
+<td style="text-align:right">54.322</td>
+<td style="text-align:right">16,571</td>
+</tr>
+</tbody>
+</table>
+<p>These dense point sets overlap heavily in the image, explaining the small file
+sizes. Both recorded exports succeeded and the million-point image was inspected.
+An earlier exploratory browser run timed out at <code>page.setContent</code> (30 seconds).
+Therefore these single-run results do not establish stable latency or interactive
+frame rate. GPU, browser, concurrent load and data shape matter. Filter or
+aggregate in SQL when plotting all observations would obscure the result.</p>
+<h2 id="reproduce">Reproduce</h2>
+<pre><code class="language-sh">npm ci
+npx playwright install chromium
+python3 test/benchmark.py --duckdb /path/to/duckdb --extension /path/to/miniplot.duckdb_extension --output benchmark.json --repeats 5
+node test/render_benchmark.cjs /path/to/duckdb /path/to/miniplot.duckdb_extension
+</code></pre>
+<p>The render benchmark records errors as well as successes. Performance scripts
+have no wall-clock pass thresholds; functional tests check precision, validity,
+counts, artifact output and error recovery. Measurements describe this host and
+these queries, rather than a guarantee for arbitrary datasets.</p>
+
+<footer>対応ソース <a href="https://github.com/nkwork9999/miniplot/tree/e66d4aa6687a1fcad0bf6a18b447399b160d4959"><code>e66d4aa6687a</code></a> · DuckDB 2.0.0</footer>
+</main></div></body></html>

@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="DuckDBの集計をグラフ、HTMLレポート、画像出力につなぐ可視化拡張。">
+<title>利用ガイド · Miniplot</title><link rel="stylesheet" href="style.css">
+<script src="search.js" defer></script>
+</head>
+<body data-project="miniplot">
+<a class="skip" href="#main">本文へ移動</a>
+<header class="masthead"><a href="index.html" class="product">Miniplot</a>
+<a href="https://github.com/nkwork9999/miniplot">GitHub ↗</a></header>
+<div class="layout"><nav aria-label="ドキュメント"><a href="index.html">概要</a><a href="functions.html">SQL リファレンス</a><a href="python.html">Python 組み込み API</a><a href="guide.html" aria-current="page">利用ガイド</a><a href="reports.html">レポートと組み込み</a><a href="performance.html">性能試験</a></nav>
+<main id="main"><details class="toc" open><summary>このページの目次</summary><ul><li class="h2"><a href="#-mission">🎯 Mission</a></li><li class="h2"><a href="#-whats-new-in-v003">✨ What&#x27;s New in v0.0.3</a></li><li class="h2"><a href="#installation">Installation</a></li><li class="h2"><a href="#-easiest-example---30-seconds-to-your-first-chart">🚀 Easiest Example - 30 Seconds to Your First Chart</a></li><li class="h2"><a href="#examples">Examples</a></li><li class="h3"><a href="#bar-chart">Bar Chart</a></li><li class="h3"><a href="#3d-scatter-chart">3D Scatter Chart</a></li><li class="h2"><a href="#usage-examples">Usage Examples</a></li><li class="h3"><a href="#additional-chart-apis-source-builds">Additional chart APIs (source builds)</a></li><li class="h3"><a href="#narrative-html-reports-for-agents">Narrative HTML reports for agents</a></li><li class="h3"><a href="#png-and-pdf-output-directly-from-sql-optional-native-tool">PNG and PDF output directly from SQL (optional native tool)</a></li><li class="h3"><a href="#large-data-performance-and-validation">Large-data performance and validation</a></li><li class="h3"><a href="#custom-plotly-json-3">Custom Plotly JSON (#3)</a></li><li class="h3"><a href="#dates-and-timestamps-on-2d-scatter-axes-4">Dates and timestamps on 2D scatter axes (#4)</a></li><li class="h3"><a href="#numeric-and-time-axes-for-line-and-area-charts">Numeric and time axes for line and area charts</a></li><li class="h3"><a href="#discover-functions-through-sql-5">Discover functions through SQL (#5)</a></li><li class="h3"><a href="#distribution-charts-histograms-and-box-plots">Distribution charts: histograms and box plots</a></li><li class="h3"><a href="#basic-charts">Basic Charts</a></li><li class="h3"><a href="#3d-scatter-charts-new-in-v003">3D Scatter Charts (New in v0.0.3)</a></li><li class="h3"><a href="#output-control-new-in-v003">Output Control (New in v0.0.3)</a></li><li class="h3"><a href="#unicode-support-new-in-v003">Unicode Support (New in v0.0.3)</a></li><li class="h3"><a href="#working-with-tables">Working with Tables</a></li><li class="h3"><a href="#working-with-csv-files">Working with CSV Files</a></li><li class="h3"><a href="#advanced-csv-processing">Advanced CSV Processing</a></li><li class="h3"><a href="#batch-chart-generation-with-copy-to">Batch Chart Generation with COPY TO</a></li><li class="h2"><a href="#requirements">Requirements</a></li><li class="h2"><a href="#license">License</a></li><li class="h2"><a href="#acknowledgments">Acknowledgments</a></li><li class="h2"><a href="#embedded-time-series-chart">Embedded time-series chart</a></li><li class="h2"><a href="#links">Links</a></li></ul></details><h1 id="miniplot">Miniplot</h1>
+<p>Interactive chart visualization extension for DuckDB - faster than pandas with Plotly-like interactive charts, all from SQL.</p>
+<h2 id="-mission">🎯 Mission</h2>
+<p><strong>&quot;One tool. One query. Instant visualization.&quot;</strong></p>
+<p>Replace multiple libraries (pandas, matplotlib, seaborn, plotly) with a single tool. No more context switching, no more complex workflows.</p>
+<ul>
+<li>📊 <strong>Multiple chart types</strong>: Bar, Line, Scatter, Area, Histogram, Box, and 3D Scatter charts</li>
+<li>🌐 <strong>Browser-based rendering</strong>: Charts open in your default web browser</li>
+<li>🔌 <strong>Internet required</strong>: Initial chart rendering requires connection (Plotly.js CDN)</li>
+</ul>
+<h2 id="-whats-new-in-v003">✨ What's New in v0.0.3</h2>
+<ul>
+<li>3D Scatter Charts - Visualize three-dimensional data with interactive 3D scatter plots</li>
+<li>Timestamp Support - Add temporal dimension to 3D visualizations</li>
+<li>File Output Control - Save charts to custom paths or <code>/tmp/</code> directory</li>
+<li>Full Unicode Support - Complete support for Japanese and other non-ASCII characters</li>
+<li>Flexible Output Options - Browser (default), <code>/tmp/</code>, or custom path</li>
+<li>CSV Integration - Seamless data visualization from CSV files</li>
+<li>Batch Processing - Generate multiple charts and export paths with <code>COPY TO</code></li>
+</ul>
+<h2 id="installation">Installation</h2>
+<pre><code class="language-sql">INSTALL miniplot FROM community;
+LOAD miniplot;
+</code></pre>
+<p>That's it! No additional setup required.</p>
+<p>Source builds and the community submission target DuckDB <strong>2.0.0</strong>. The integration
+matrix also checks <strong>1.5.6</strong> compatibility. A C++ extension binary must match its
+DuckDB host version; build/load the corresponding artifact rather than reuse a
+1.5 binary with 2.0. The optional PNG/PDF exporter requires the separate setup
+below; HTML generation needs no Node.js installation.</p>
+<h2 id="-easiest-example---30-seconds-to-your-first-chart">🚀 Easiest Example - 30 Seconds to Your First Chart</h2>
+<p><strong>Step 1: Create <code>test.csv</code> in your local directory</strong></p>
+<pre><code class="language-csv">product,revenue
+iPhone,450
+MacBook,380
+iPad,290
+AirPods,185
+Watch,160
+</code></pre>
+<p><strong>Step 2: Open DuckDB CLI</strong></p>
+<pre><code class="language-bash">duckdb
+</code></pre>
+<p><strong>Step 3: Install and load miniplot</strong></p>
+<pre><code class="language-sql">INSTALL miniplot FROM community;
+LOAD miniplot;
+</code></pre>
+<p><strong>Step 4: Visualize!</strong></p>
+<pre><code class="language-sql">SELECT bar_chart(
+    list(product),
+    list(revenue),
+    'Product Revenue'
+) FROM 'test.csv';
+</code></pre>
+<p><strong>Result:</strong> Interactive chart opens in your browser instantly! 🎉</p>
+<hr />
+<h2 id="examples">Examples</h2>
+<h3 id="bar-chart">Bar Chart</h3>
+<p><img src="https://raw.githubusercontent.com/nkwork9999/miniplot/e66d4aa6687a1fcad0bf6a18b447399b160d4959/images/barchart.png" alt="Bar Chart Example" /></p>
+<h3 id="3d-scatter-chart">3D Scatter Chart</h3>
+<p><img src="https://raw.githubusercontent.com/nkwork9999/miniplot/e66d4aa6687a1fcad0bf6a18b447399b160d4959/images/3dscatter.png" alt="3D Scatter Chart Example" /></p>
+<h2 id="usage-examples">Usage Examples</h2>
+<h3 id="additional-chart-apis-source-builds">Additional chart APIs (source builds)</h3>
+<p>The following additions require an extension built from this repository; an older
+community-distributed binary may not contain them yet. Each accepts a title after
+the data arguments, plus an optional output path (<code>'tmp'</code>, a custom HTML path, or
+an empty path to open a browser). Each also has a pure <code>*_chart_html</code> variant.</p>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th>Data arguments</th>
+<th>Use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>pie_chart</code></td>
+<td>labels, values</td>
+<td>Shares; values must be nonnegative with at least one positive value</td>
+</tr>
+<tr>
+<td><code>donut_chart</code></td>
+<td>labels, values</td>
+<td>Shares with a central hole</td>
+</tr>
+<tr>
+<td><code>horizontal_bar_chart</code></td>
+<td>labels, values</td>
+<td>Long category labels</td>
+</tr>
+<tr>
+<td><code>violin_chart</code></td>
+<td>samples</td>
+<td>Distribution shape from raw observations</td>
+</tr>
+<tr>
+<td><code>bubble_chart</code></td>
+<td>x, y, sizes</td>
+<td>Three numeric variables; sizes are nonnegative pixel diameters</td>
+</tr>
+<tr>
+<td><code>heatmap_chart</code></td>
+<td>x, y, z</td>
+<td>Matrix/grid values</td>
+</tr>
+<tr>
+<td><code>contour_chart</code></td>
+<td>x, y, z</td>
+<td>Contour levels on a grid</td>
+</tr>
+<tr>
+<td><code>step_chart</code></td>
+<td>x, y</td>
+<td>Horizontal-then-vertical steps; input order is preserved</td>
+</tr>
+<tr>
+<td><code>radar_chart</code></td>
+<td>labels, values</td>
+<td>Nonnegative values on labeled radial axes</td>
+</tr>
+<tr>
+<td><code>scatter_gl_chart</code></td>
+<td>x, y</td>
+<td>Large point sets using WebGL</td>
+</tr>
+</tbody>
+</table>
+<pre><code class="language-sql">SELECT pie_chart_html(['A','B'], [1.0,2.0], 'Shares');
+SELECT donut_chart_html(['A','B'], [1.0,2.0], 'Shares');
+SELECT horizontal_bar_chart_html(['Long category A','Long category B'], [1.0,2.0], 'Categories');
+SELECT violin_chart_html([1.0,2.0,2.0,4.0], 'Distribution');
+SELECT bubble_chart_html([1.0,2.0], [3.0,4.0], [10.0,20.0], 'Bubbles');
+SELECT heatmap_chart_html([1.0,2.0], [3.0,4.0], [[5.0,6.0],[7.0,8.0]], 'Heatmap');
+SELECT contour_chart_html([1.0,2.0], [3.0,4.0], [[5.0,6.0],[7.0,8.0]], 'Contour');
+SELECT step_chart_html([1.0,2.0,10.0], [3.0,4.0,5.0], 'Steps');
+SELECT radar_chart_html(['Speed','Quality','Cost'], [8.0,7.0,5.0], 'Scores');
+SELECT scatter_gl_chart_html([1.0,2.0], [3.0,4.0], 'WebGL scatter');
+</code></pre>
+<p>Numeric inputs are DOUBLE arrays. Arrays must be nonempty, equally sized where
+paired, finite and free of NULL elements. Grid x/y axes must be strictly increasing;
+<code>z</code> has <code>len(y)</code> rows and <code>len(x)</code> columns. SQL NULL arguments return NULL.
+The WebGL variant requires working WebGL; it does not silently sample points or
+fall back to SVG. Browser/GPU memory still limits practical data size. Filter or
+aggregate in SQL when displaying every observation is unnecessary.</p>
+<h3 id="narrative-html-reports-for-agents">Narrative HTML reports for agents</h3>
+<p><code>chart_report_html(report_json)</code> returns a complete document containing prose and
+multiple charts. <code>chart_report(report_json, output_path)</code> saves it as HTML.
+The input is a JSON object with a string <code>title</code> and a nonempty <code>sections</code> array.
+Each section accepts <code>heading</code>, <code>text</code>, and optional Plotly <code>data</code>, <code>layout</code> and
+<code>config</code>. A section needs a nonempty heading/text or chart data. The
+<a href="https://github.com/nkwork9999/miniplot/blob/e66d4aa6687a1fcad0bf6a18b447399b160d4959/docs/report.schema.json">JSON schema</a> describes the contract.</p>
+<pre><code class="language-sql">SELECT chart_report_html(to_json({
+    'title': 'Sales analysis',
+    'sections': [{
+        'heading': 'Findings',
+        'text': E'B sold twice as much as A.\nValues are raw observations.',
+        'data': [{'type': 'bar', 'x': ['A','B'], 'y': [1,2]}],
+        'layout': {'title': {'text': 'Sales'}}
+    }]
+}));
+</code></pre>
+<p>Headings and prose are plain text, with HTML characters escaped and line breaks
+preserved; raw HTML/Markdown is not interpreted. Invalid ASCII controls are
+replaced in HTML text. JSON plot data keeps its original values. Reports embed
+an exact, non-executable JSON specification in
+<code>&lt;script type=&quot;application/json&quot; id=&quot;miniplot-report&quot;&gt;</code>, so agents can recover
+and reproduce the original report without scraping its visual layout. Script
+terminators in that JSON are escaped. Charts render responsively and sections
+are kept together when printing where page size permits.</p>
+<p>Agents can discover argument names, types, descriptions, examples, categories and
+side effects through the existing <code>duckdb_functions()</code> catalog rather than guess
+SQL signatures. All new overloads include runnable examples. HTML functions are
+pure and support <code>TRY(...)</code>; functions that write files or launch a browser are
+marked as having side effects. All file/browser/export APIs respect
+<code>enable_external_access=false</code>; HTML return functions remain available.</p>
+<h3 id="png-and-pdf-output-directly-from-sql-optional-native-tool">PNG and PDF output directly from SQL (optional native tool)</h3>
+<p><code>chart_export(html, output_path)</code> renders current Miniplot HTML to <code>.png</code> or <code>.pdf</code>
+and returns the path. It supports ordinary charts and narrative reports. This
+optional feature needs Node.js 18+, the local tool dependencies, and Chromium:</p>
+<pre><code class="language-sh"># In this repository, on the same machine that runs DuckDB:
+npm ci
+npx playwright install chromium
+export MINIPLOT_EXPORTER=&quot;$PWD/scripts/export-chart.cjs&quot;
+# Start DuckDB from this environment, then load your built extension.
+</code></pre>
+<pre><code class="language-sql">SELECT chart_export(bar_chart_html(['A','B'], [1.0,2.0], 'Sales'), 'sales.png');
+SELECT chart_export(chart_report_html(
+    '{&quot;title&quot;:&quot;Summary&quot;,&quot;sections&quot;:[{&quot;text&quot;:&quot;Sales increased.&quot;,&quot;data&quot;:[{&quot;type&quot;:&quot;bar&quot;,&quot;x&quot;:[&quot;A&quot;,&quot;B&quot;],&quot;y&quot;:[1,2]}]}]}'
+), 'report.pdf');
+</code></pre>
+<p>Exports use the pinned local Plotly.js bundle and block network requests, so no
+CDN connection is needed after tool/browser installation. PNG captures the full
+page at a 1200-pixel viewport; PDF prints A4 pages with Japanese/selectable text
+where fonts are available. Rendering waits for Plotly promises and fonts. A failed
+render preserves an existing destination file and cleans temporary files. Export
+is synchronous and starts a browser per call; it is intended for artifacts, not
+high-throughput per-row rendering. Server containers need Chromium system
+libraries (<code>npx playwright install --with-deps chromium</code>). Wasm cannot spawn a
+local browser; use HTML output there. Native export is locally verified on macOS
+arm64 and included in Linux CI; other hosts need their own validation.</p>
+<h3 id="large-data-performance-and-validation">Large-data performance and validation</h3>
+<p>Numeric serialization now reuses one locale-aware stream per array rather than
+constructing a stream for each value. DOUBLE round-trip precision is retained.
+The regression suite executes one million WebGL points and checks lengths and
+sample coordinates at the JavaScript boundary; it never drops observations.</p>
+<p>Reproduce SQL serialization measurements (including CLI startup and aggregation):</p>
+<pre><code class="language-sh">python3 test/benchmark.py --duckdb /path/to/duckdb --extension /path/to/miniplot.duckdb_extension --output benchmark.json --repeats 5
+node test/render_benchmark.cjs /path/to/duckdb /path/to/miniplot.duckdb_extension
+</code></pre>
+<p><a href="performance.html">Measured results and methodology</a> separate SQL/HTML
+serialization from actual Chromium/WebGL PNG rendering. Timings depend on data,
+hardware, browser/GPU and load; they are not a guarantee for arbitrary datasets.
+Generated documents are parsed for HTML errors, scripts are executed with hostile
+strings, all ten added charts are rendered in real Chromium, and SQL-created
+PNG/PDF files are checked for content, dimensions and page count. This validates
+our generated documents and documented contracts; arbitrary options passed through
+<code>plotly_new</code> still follow Plotly's own schema and rendering limits.</p>
+<h3 id="custom-plotly-json-3">Custom Plotly JSON (#3)</h3>
+<p><code>plotly_new(data, layout [, config [, output_path]])</code> passes a JSON array of trace
+objects and JSON layout/config objects to <code>Plotly.newPlot</code>. Omitted <code>config</code>
+defaults to <code>{}</code>. Use <code>'tmp'</code> or a custom output path to save without opening the
+browser; omitting the path opens the generated file. The return value is the
+file path. <code>plotly_new_html(data, layout [, config])</code> returns the HTML document
+without writing a file or opening a browser.</p>
+<pre><code class="language-sql">SELECT plotly_new(
+    '[{&quot;x&quot;:[1,2,3],&quot;y&quot;:[3,1,4],&quot;type&quot;:&quot;scatter&quot;,&quot;name&quot;:&quot;Observed&quot;},
+      {&quot;x&quot;:[1,2,3],&quot;y&quot;:[2,2,3],&quot;type&quot;:&quot;scatter&quot;,&quot;name&quot;:&quot;Expected&quot;}]',
+    '{&quot;title&quot;:{&quot;text&quot;:&quot;Comparison&quot;},&quot;xaxis&quot;:{&quot;title&quot;:&quot;Day&quot;},&quot;showlegend&quot;:true}',
+    '{&quot;responsive&quot;:true,&quot;displayModeBar&quot;:false}',
+    'tmp'
+);
+
+-- Build JSON from DuckDB lists and structs instead of assembling JSON strings.
+SELECT plotly_new_html(
+    to_json([{'x': [1,2], 'y': [3,4], 'type': 'bar', 'name': 'Sales'}]),
+    to_json({'title': {'text': 'Sales'}, 'showlegend': true})
+);
+</code></pre>
+<p>Strings containing malformed JSON, non-object traces, or non-object layout/config
+are rejected by SQL. SQL <code>NULL</code> arguments return <code>NULL</code>. Plotly handles the
+individual trace/layout options; this extension validates the JSON and its top
+level shapes, not every Plotly option. Strings are escaped before embedding in
+HTML, including <code>&lt;/script&gt;</code> text. Rendering uses the existing Plotly.js 2.27.0 CDN.</p>
+<h3 id="dates-and-timestamps-on-2d-scatter-axes-4">Dates and timestamps on 2D scatter axes (#4)</h3>
+<p>Both <code>scatter_chart</code> and <code>scatter_chart_html</code> accept <code>DOUBLE[]</code>, <code>DATE[]</code>,
+<code>TIMESTAMP[]</code>, or <code>TIMESTAMPTZ[]</code> on either axis, including two date/time axes.
+Numeric axes remain numeric; date/time axes explicitly use Plotly's date scale.</p>
+<pre><code class="language-sql">SELECT scatter_chart(
+    [TIMESTAMP '2026-01-01 09:00:00', TIMESTAMP '2026-01-01 10:30:00'],
+    [12.5, 15.0],
+    'Sensor readings',
+    'tmp'
+);
+
+SELECT scatter_chart_html([1.0, 2.0], [DATE '2026-01-01', DATE '2026-01-03'], 'Dates');
+</code></pre>
+<p><code>TIMESTAMP</code> preserves wall-clock fields; <code>TIMESTAMPTZ</code> instants are displayed in
+UTC, independent of the DuckDB session time zone. Cast timestamp precision
+variants explicitly to <code>TIMESTAMP[]</code> when needed. Plotly's date display precision
+is separate from DuckDB's timestamp precision. Arrays must be nonempty, have
+matching lengths, and contain no NULL or infinite values; SQL NULL arguments
+return NULL.</p>
+<h3 id="numeric-and-time-axes-for-line-and-area-charts">Numeric and time axes for line and area charts</h3>
+<p><code>line_chart</code>, <code>area_chart</code>, and their <code>*_html</code> variants also accept <code>DOUBLE[]</code>,
+<code>DATE[]</code>, <code>TIMESTAMP[]</code>, or <code>TIMESTAMPTZ[]</code> for x, with <code>DOUBLE[]</code> for y.
+Numeric x values use a linear scale, so uneven sampling intervals retain their
+spacing. Time axes use a date scale. Existing <code>VARCHAR[]</code> labels remain supported.</p>
+<pre><code class="language-sql">-- The interval from 2 to 10 is eight times the interval from 1 to 2.
+SELECT line_chart([1.0, 2.0, 10.0], [0.1, 0.2, 0.3], 'Uneven samples', 'tmp');
+
+SELECT area_chart_html(
+    [TIMESTAMP '2026-01-01 10:00:00.123456', TIMESTAMP '2026-01-01 12:00:00'],
+    [12.5, 15.0], 'Sensor readings'
+);
+</code></pre>
+<p>Like scatter charts, these axes serialize finite doubles with round-trip precision;
+<code>TIMESTAMP</code> retains wall-clock fields and <code>TIMESTAMPTZ</code> is converted to UTC.
+Input order is preserved; sort aggregated lists explicitly when needed. Arrays
+must be nonempty, equally sized and contain no NULL or infinite values. SQL NULL
+arguments return NULL. File, browser and HTML output modes work as before.</p>
+<p>Numeric axes use IEEE 754 doubles: integers beyond 2^53 and high-precision DECIMAL
+values can lose precision when converted to DOUBLE. Timestamp text retains DuckDB's
+microseconds, while Plotly/browser date rendering has its own precision limits.</p>
+<h3 id="discover-functions-through-sql-5">Discover functions through SQL (#5)</h3>
+<p>Every overload, including HTML variants and the diagnostic functions, provides
+real argument names, a description, a runnable example and a <code>visualization</code>
+category through DuckDB's function catalog:</p>
+<pre><code class="language-sql">SELECT function_name, parameters, parameter_types, description, examples
+FROM duckdb_functions()
+WHERE function_name IN ('plotly_new', 'plotly_new_html', 'scatter_chart', 'scatter_chart_html');
+</code></pre>
+<p>Functions that write files or launch a browser are marked as having side effects.
+The <code>*_html</code> functions are pure and support <code>TRY(...)</code> for invalid row inputs.</p>
+<h3 id="distribution-charts-histograms-and-box-plots">Distribution charts: histograms and box plots</h3>
+<p>Use <code>histogram_chart(samples, title [, output_path])</code> for a frequency distribution
+or <code>box_chart(samples, title [, output_path])</code> for a box-and-whisker plot.
+<code>histogram_chart_html(samples, title)</code> and <code>box_chart_html(samples, title)</code> return
+HTML without file or browser side effects.</p>
+<pre><code class="language-sql">SELECT histogram_chart([1.0, 2.0, 2.0, 3.0, 8.0], 'Frequency', 'tmp');
+SELECT box_chart_html([1.0, 2.0, 2.0, 3.0, 8.0], 'Spread');
+
+-- Aggregate raw observations, retaining duplicates.
+SELECT histogram_chart(list(amount), 'Sales distribution', 'tmp') FROM sales;
+</code></pre>
+<p>These functions preserve every sample, including duplicates, using round-trip
+DOUBLE serialization. Plotly chooses histogram bins and computes box-plot
+quartiles and outliers in the browser. For explicit bins or a different quartile
+method, use <code>plotly_new</code> with custom trace options. These are visualizations of
+raw samples; they do not return a table of statistical results.</p>
+<p>Samples must be a nonempty numeric array with finite, non-NULL elements.
+SQL NULL arguments return NULL; invalid inputs to HTML variants support <code>TRY</code>.
+The same DOUBLE precision and CDN requirements as other charts apply.</p>
+<h3 id="basic-charts">Basic Charts</h3>
+<h4 id="bar-chart-1">Bar Chart</h4>
+<pre><code class="language-sql">SELECT bar_chart(
+    ['Q1', 'Q2', 'Q3', 'Q4'],
+    [100.0, 150.0, 200.0, 180.0],
+    'Quarterly Sales'
+);
+</code></pre>
+<h4 id="line-chart">Line Chart</h4>
+<pre><code class="language-sql">SELECT line_chart(
+    ['Jan', 'Feb', 'Mar', 'Apr', 'May'],
+    [5.2, 7.1, 12.5, 15.8, 20.3],
+    'Monthly Temperature'
+);
+</code></pre>
+<h4 id="scatter-chart">Scatter Chart</h4>
+<pre><code class="language-sql">SELECT scatter_chart(
+    [1.0, 2.0, 3.0, 4.0, 5.0],
+    [2.5, 5.0, 7.5, 10.0, 12.5],
+    'Correlation Analysis'
+);
+</code></pre>
+<h4 id="area-chart">Area Chart</h4>
+<pre><code class="language-sql">SELECT area_chart(
+    ['Week1', 'Week2', 'Week3', 'Week4'],
+    [1000.0, 1500.0, 1300.0, 1800.0],
+    'Weekly Revenue'
+);
+</code></pre>
+<h3 id="3d-scatter-charts-new-in-v003">3D Scatter Charts (New in v0.0.3)</h3>
+<h4 id="basic-3d-scatter">Basic 3D Scatter</h4>
+<pre><code class="language-sql">-- Opens in browser
+SELECT scatter_3d_chart(
+    [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+    [2.0, 4.0, 1.0, 5.0, 3.0, 6.0],
+    [3.0, 1.0, 4.0, 2.0, 5.0, 3.5],
+    '3D Data Visualization'
+);
+</code></pre>
+<h4 id="3d-scatter-with-timestamps">3D Scatter with Timestamps</h4>
+<pre><code class="language-sql">-- Add temporal dimension
+SELECT scatter_3d_chart(
+    [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+    [2.0, 4.0, 1.0, 5.0, 3.0, 6.0],
+    [3.0, 1.0, 4.0, 2.0, 5.0, 3.5],
+    ['2024-01-01 10:00', '2024-01-01 11:00', '2024-01-01 12:00',
+     '2024-01-01 13:00', '2024-01-01 14:00', '2024-01-01 15:00'],
+    'Time-Series 3D Scatter'
+);
+</code></pre>
+<h3 id="output-control-new-in-v003">Output Control (New in v0.0.3)</h3>
+<pre><code class="language-sql">-- Save to /tmp/ without opening browser
+SELECT bar_chart(
+    ['A', 'B', 'C'],
+    [10.0, 20.0, 15.0],
+    'Sample Chart',
+    'tmp'
+);
+
+-- Save to custom path
+SELECT line_chart(
+    ['Q1', 'Q2', 'Q3', 'Q4'],
+    [250.0, 320.0, 410.0, 380.0],
+    'Quarterly Report',
+    'reports/q4_sales.html'
+);
+
+-- Save 3D chart to specific location
+SELECT scatter_3d_chart(
+    [10.0, 20.0, 30.0, 40.0],
+    [15.0, 25.0, 20.0, 35.0],
+    [5.0, 10.0, 8.0, 12.0],
+    ['09:00', '12:00', '15:00', '18:00'],
+    'Sensor Data',
+    'data/sensor_3d.html'
+);
+</code></pre>
+<h3 id="unicode-support-new-in-v003">Unicode Support (New in v0.0.3)</h3>
+<pre><code class="language-sql">-- Japanese titles and labels
+SELECT bar_chart(
+    ['春', '夏', '秋', '冬'],
+    [15.0, 28.0, 18.0, 5.0],
+    '季節別平均気温（℃）'
+);
+
+-- Japanese data with timestamps
+SELECT scatter_3d_chart(
+    [10.0, 20.0, 30.0],
+    [15.0, 25.0, 20.0],
+    [5.0, 10.0, 8.0],
+    ['午前', '正午', '午後'],
+    '温度センサー',
+    'temp_sensor.html'
+);
+</code></pre>
+<h3 id="working-with-tables">Working with Tables</h3>
+<pre><code class="language-sql">-- Create sample data
+CREATE TABLE sales AS
+SELECT 'Mon' as day, 100.0 as amount UNION ALL
+SELECT 'Tue', 150.0 UNION ALL
+SELECT 'Wed', 120.0 UNION ALL
+SELECT 'Thu', 180.0 UNION ALL
+SELECT 'Fri', 140.0;
+
+-- Visualize directly from table
+SELECT bar_chart(
+    list(day ORDER BY day),
+    list(amount ORDER BY day),
+    'Weekly Sales Report'
+) FROM sales;
+</code></pre>
+<h3 id="working-with-csv-files">Working with CSV Files</h3>
+<pre><code class="language-sql">-- Load CSV data
+CREATE TABLE stocks AS
+SELECT * FROM read_csv_auto('stocks.csv');
+
+-- Visualize stock prices
+SELECT line_chart(
+    list(CAST(date AS VARCHAR) ORDER BY date),
+    list(price ORDER BY date),
+    'Stock Price Trend'
+)
+FROM stocks;
+
+-- Direct CSV visualization
+SELECT bar_chart(
+    list(month),
+    list(sales),
+    'Monthly Sales from CSV',
+    'output.html'
+) FROM read_csv('sales.csv');
+</code></pre>
+<h3 id="advanced-csv-processing">Advanced CSV Processing</h3>
+<pre><code class="language-sql">-- Filter and visualize
+SELECT line_chart(
+    list(date ORDER BY date),
+    list(temperature ORDER BY date),
+    '2024 Temperature Trend',
+    'temp_2024.html'
+) FROM read_csv('weather.csv')
+WHERE date &gt;= '2024-01-01' AND date &lt; '2025-01-01';
+
+-- Aggregate and visualize top 10
+SELECT bar_chart(
+    list(customer_name ORDER BY total_sales DESC),
+    list(total_sales ORDER BY total_sales DESC),
+    'Top 10 Customers',
+    'top_customers.html'
+) FROM (
+    SELECT customer_name, sum(sales) AS total_sales
+    FROM read_csv('customer_sales.csv')
+    GROUP BY customer_name
+    ORDER BY total_sales DESC
+    LIMIT 10
+);
+</code></pre>
+<h3 id="batch-chart-generation-with-copy-to">Batch Chart Generation with COPY TO</h3>
+<pre><code class="language-sql">-- Generate single chart and save path
+COPY (
+    SELECT
+        'bar_chart' AS chart_type,
+        bar_chart(
+            ['A', 'B', 'C'],
+            [10.0, 20.0, 15.0],
+            'Sample Chart',
+            'output_bar.html'
+        ) AS file_path
+) TO 'chart_paths.csv' (HEADER, DELIMITER ',');
+
+-- Generate multiple charts and export paths
+COPY (
+    SELECT 'bar_chart' AS type,
+           bar_chart(['A','B','C'], [10,20,15], 'Bar', 'bar.html') AS path
+    UNION ALL
+    SELECT 'line_chart' AS type,
+           line_chart(['X','Y','Z'], [5,10,8], 'Line', 'line.html') AS path
+    UNION ALL
+    SELECT 'scatter_chart' AS type,
+           scatter_chart([1,2,3], [2,4,3], 'Scatter', 'scatter.html') AS path
+) TO 'all_charts.csv' (HEADER);
+</code></pre>
+<h2 id="requirements">Requirements</h2>
+<ul>
+<li><strong>Internet connection</strong>: Required for first-time chart rendering (Plotly.js loads from CDN)</li>
+<li><strong>Browser</strong>: Any modern web browser (Chrome, Firefox, Safari, Edge)</li>
+<li>Regular HTML can reuse a cached Plotly.js bundle, but caching is not guaranteed; native PNG/PDF export uses the installed local bundle.</li>
+</ul>
+<h2 id="license">License</h2>
+<p>MIT License - see <a href="https://github.com/nkwork9999/miniplot/blob/e66d4aa6687a1fcad0bf6a18b447399b160d4959/LICENSE">LICENSE</a> file</p>
+<h2 id="acknowledgments">Acknowledgments</h2>
+<ul>
+<li>Built with <a href="https://duckdb.org/">DuckDB</a></li>
+<li>Powered by <a href="https://plotly.com/javascript/">Plotly.js</a></li>
+<li>Written in C++</li>
+</ul>
+<h2 id="embedded-time-series-chart">Embedded time-series chart</h2>
+<p><code>TimeSeriesChart(connection).line(times, values, title=&quot;Sales&quot;, width=1200)</code> in <code>python/miniplot_embedded.py</code> returns HTML. Give it naive datetimes on the same time scale and finite observations. DuckDB retains the first, lowest, highest and last observation of each time bin, deduplicates them by input position and orders them chronologically. Equal timestamps retain input order.</p>
+<p>Use <code>segments(times, values, width=1200)</code> on the same chart to obtain reduced chronological segments separated by missing observations. For fixed boundaries, <code>Histogram(connection).count(values, edges)</code> returns counts for every bin, including empty bins, and two separate totals for missing and out-of-range samples. The last bin includes its right edge.</p>
+<p>Give each active caller its own connection with the matching extension loaded. With Python 3.10+,
+the <code>duckdb</code> package and the matching installed extension, run the integration tests from the repository root:</p>
+<pre><code class="language-sh">python3 -m unittest discover -s python -v
+</code></pre>
+<p>Set <code>MINIPLOT_TEST_EXTENSION</code> to the absolute path of a trusted local build to test it instead of the installed package.</p>
+<h2 id="links">Links</h2>
+<ul>
+<li><a href="https://github.com/duckdb/community-extensions">Community Extensions</a></li>
+<li><a href="https://github.com/nkwork9999/miniplot/issues">Issue Tracker</a></li>
+<li><a href="https://duckdb.org/docs/">DuckDB Documentation</a></li>
+</ul>
+
+<footer>対応ソース <a href="https://github.com/nkwork9999/miniplot/tree/e66d4aa6687a1fcad0bf6a18b447399b160d4959"><code>e66d4aa6687a</code></a> · DuckDB 2.0.0</footer>
+</main></div></body></html>

@@ -1,0 +1,54 @@
+:root{font-family:Inter,-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;color:#192522;background:#f6f8f7;--line:#dbe3df;--muted:#515f59;--accent:#0a6c58;--wash:#e6f2ed}
+body[data-project=ducksmiles]{--accent:#664d9b;--wash:#f0ebf8}
+body[data-project=duckgl]{--accent:#075d92;--wash:#e6f1fa}
+body[data-project=miniplot]{--accent:#8d4d16;--wash:#f8efe5}
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0}
+a{color:var(--accent);text-underline-offset:.18em}
+button,input{font:inherit}
+a:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.skip{position:absolute;left:1rem;top:1rem;transform:translateY(-180%);padding:.7rem;background:white;z-index:5}
+.skip:focus{transform:none}
+.masthead{max-width:85rem;margin:auto;display:flex;align-items:center;justify-content:space-between;padding:1.1rem clamp(1rem,4vw,3rem);border-bottom:1px solid var(--line)}
+.product{font-size:1.15rem;font-weight:750;letter-spacing:-.025em;text-decoration:none;color:#192522}
+.layout{display:grid;grid-template-columns:minmax(11rem,15rem) minmax(0,1fr);gap:clamp(1.5rem,5vw,5rem);max-width:85rem;margin:auto;padding:2.2rem clamp(1rem,4vw,3rem)}
+nav{display:grid;align-content:start;gap:.2rem;position:sticky;align-self:start;top:1.5rem}
+nav a{color:var(--muted);font-size:.9rem;text-decoration:none;padding:.55rem .65rem;border-radius:.55rem}
+nav a[aria-current=page]{color:var(--accent);font-weight:700;background:var(--wash)}
+nav a:hover{background:white}
+main{min-width:0;max-width:59rem;line-height:1.75}
+h1,h2,h3{line-height:1.3;letter-spacing:-.025em;overflow-wrap:anywhere}
+h1{font-size:clamp(2rem,6vw,3.25rem);margin:0 0 1rem}
+h2{font-size:1.35rem;margin:2.25rem 0 .9rem}
+h3{font-size:1.1rem;margin-top:1.7rem}
+.intro{padding:clamp(1.35rem,5vw,3.2rem);background:var(--wash);border:1px solid var(--line);border-radius:1.2rem}
+.intro p{max-width:38em;font-size:1.12rem;margin:0 0 1.4rem}
+.quick-links,.siblings{display:flex;flex-wrap:wrap;gap:.7rem}
+.quick-links a{background:var(--accent);color:white;text-decoration:none;padding:.5rem .85rem;border-radius:.55rem;font-size:.91rem;font-weight:650}
+.quick-links a+ a{color:var(--accent);background:white}
+.sections{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.8rem}
+.section{color:inherit;text-decoration:none;border:1px solid var(--line);border-radius:.8rem;background:white;padding:1.05rem 1.2rem;display:grid;gap:.35rem}
+.section:hover{border-color:var(--accent)}
+.section strong{color:var(--accent)}
+.section span{font-size:.92rem;color:var(--muted)}
+.siblings{gap:1.4rem}
+pre,code{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.88em}
+code{padding:.1rem .22rem;border-radius:.25rem;background:#eaf0ed;overflow-wrap:anywhere}
+pre{background:#1d2a27;color:#f1f6f3;border-radius:.65rem;padding:1rem 1.12rem;overflow:auto;tab-size:2}
+pre code{padding:0;background:transparent;font-size:1em}
+table{display:block;max-width:100%;overflow:auto;border-collapse:collapse;background:white}
+th,td{padding:.55rem .7rem;border:1px solid var(--line);text-align:left;vertical-align:top}
+th{background:var(--wash)}
+img{max-width:100%;height:auto}
+.entry,.toc{background:white;border:1px solid var(--line);border-radius:.65rem;margin:.62rem 0;padding:.72rem 1rem}
+.entry h2{margin:.4rem 0 .75rem}
+.entry summary,.toc summary{cursor:pointer}
+.entry summary span{color:var(--muted);margin-inline-start:.75rem;font-size:.82rem}
+.entry li+li{margin-top:.65rem}
+.overload{border-top:1px solid var(--line);padding-top:.75rem;margin-top:.75rem}
+.toc ul{columns:2}
+.toc li.h3{margin-left:.75rem;font-size:.85rem}
+.search{max-width:35rem;display:grid;gap:.3rem;font-weight:650}
+.search input{width:100%;padding:.55rem .7rem;background:white;color:#192522;border:1px solid #798882;border-radius:.55rem}
+footer{border-top:1px solid var(--line);margin-top:3rem;padding-top:1rem;font-size:.84rem;color:var(--muted)}
+@media(max-width:720px){.layout{display:block;padding-top:1rem}nav{position:static;display:flex;gap:.25rem;overflow:auto;white-space:nowrap;margin-bottom:1.4rem;padding-bottom:.4rem;border-bottom:1px solid var(--line)}.sections{grid-template-columns:1fr}.toc ul{columns:1}}
