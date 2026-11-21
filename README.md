@@ -582,6 +582,15 @@ MIT License - see [LICENSE](LICENSE) file
 
 ## Embedded time-series chart
 
+Use `GroupedStatistics(connection)` for compact data and charts. `boxplot` returns continuous quartiles,
+observed Tukey whiskers and a bounded list of outlier examples. `boxplot_html` renders the summaries
+directly. `top_categories` groups by stable ID, with separate remainder and missing totals.
+`weighted_means` keeps the weighted sum and valid weight that `combine_weighted_means` uses for rollups.
+`degree_distribution` returns incoming and outgoing degree histograms from a vertex list and weighted directed edges,
+including isolated vertices at degree zero.
+`Histogram.count_log(values, lower=0.01, upper=10000, bins=6)` returns exponentially spaced edges in
+the original units, with separate counts for missing, nonpositive and out-of-range observations.
+
 `TimeSeriesChart(connection).line(times, values, title="Sales", width=1200)` in `python/miniplot_embedded.py` returns HTML. Give it naive datetimes on the same time scale and finite observations. DuckDB retains the first, lowest, highest and last observation of each time bin, deduplicates them by input position and orders them chronologically. Equal timestamps retain input order.
 
 Use `segments(times, values, width=1200)` on the same chart to obtain reduced chronological segments separated by missing observations. For fixed boundaries, `Histogram(connection).count(values, edges)` returns counts for every bin, including empty bins, and two separate totals for missing and out-of-range samples. The last bin includes its right edge.

@@ -5,6 +5,18 @@ from miniplot_embedded import Histogram
 
 
 class HistogramTests(unittest.TestCase):
+    def test_log_bins_preserve_original_units_and_count_exclusions(self):
+        with duckdb.connect() as db:
+            histogram = Histogram(db)
+            result = histogram.count_log([0.01, 0.2, 2, 20, 200, 2_000, 10_000, 100_000, 0, -1, None],
+                                         lower=0.01, upper=10_000, bins=6)
+            self.assertEqual(result.counts, (1, 1, 1, 1, 1, 2))
+            for actual, expected in zip(result.edges, [0.01, 0.1, 1, 10, 100, 1_000, 10_000]):
+                self.assertAlmostEqual(actual / expected, 1)
+            self.assertEqual((result.nonpositive, result.missing, result.outside), (2, 1, 1))
+            boundary_result = histogram.count_log(list(result.edges), lower=0.01, upper=10_000, bins=6)
+            self.assertEqual(boundary_result.counts, (1, 1, 1, 1, 1, 2))
+
     def test_boundaries_empty_bins_missing_and_outside(self):
         with duckdb.connect() as db:
             histogram = Histogram(db)
