@@ -605,6 +605,9 @@ into clipped intervals, ending the state at a missing event or when its maximum 
 `TreeMap.summarize` rolls leaf weights up to an explicitly selected depth, and `TreeMap.chart` renders the
 hierarchy as a treemap. `TimeSeriesDiff.compare` aligns two revisions by time and stable row key.
 `TimeSeriesDiff.chart` renders their measurements, absolute differences and relative differences.
+`SparseHeatmap(connection, relation, columns=..., rows=...)` reads unique `xbin`, `ybin`, `value` records.
+Use `sparse(window)` for the observed records or `dense(window)` for a bounded rectangle including
+unobserved and out-of-bounds cells. Zero and NULL have separate states.
 `VoxelGrid(connection, relation).summarize(VoxelSpec(...))` bins points from `id`, `x`, `y`, `z` and
 `color` columns. Each occupied cell returns a count, centroid and mean color. Use `points` for a
 bounded page of the original points from one selected cell. Call `chart` to render occupied cells in 3D.

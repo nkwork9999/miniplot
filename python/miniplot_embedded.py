@@ -491,6 +491,77 @@ class TimeSeriesDiff:
 
 
 @dataclass(frozen=True)
+class GridWindow:
+    x_start: int
+    x_end: int
+    y_start: int
+    y_end: int
+
+    def __post_init__(self):
+        values = (self.x_start, self.x_end, self.y_start, self.y_end)
+        if any(type(value) is not int or not -(1 << 31) <= value < (1 << 31) for value in values):
+            raise ValueError("grid bounds must be signed 32-bit integers")
+        if self.x_start >= self.x_end or self.y_start >= self.y_end:
+            raise ValueError("expected a nonempty half-open grid window")
+
+
+@dataclass(frozen=True)
+class HeatmapCell:
+    x: int
+    y: int
+    state: str
+    value: float | None
+
+
+class SparseHeatmap:
+    """Read a registered relation with unique (xbin, ybin) cell IDs."""
+
+    def __init__(self, connection: DuckDBPyConnection, relation: str, *, columns: int, rows: int):
+        if any(type(size) is not int or not 1 <= size < (1 << 31) for size in (columns, rows)):
+            raise ValueError("grid dimensions must be positive signed 32-bit integers")
+        self._db = connection
+        self._relation = _quote_identifier(relation)
+        self._columns = columns
+        self._rows = rows
+
+    @staticmethod
+    def _parameters(window):
+        if type(window) is not GridWindow:
+            raise TypeError("expected a GridWindow")
+        return [window.x_start, window.x_end, window.y_start, window.y_end]
+
+    def sparse(self, window: GridWindow) -> list[HeatmapCell]:
+        x_start, x_end, y_start, y_end = self._parameters(window)
+        rows = self._db.execute(f"""
+            SELECT xbin, ybin, CASE WHEN isfinite(value) THEN 'observed' ELSE 'missing_value' END AS state,
+                   CASE WHEN isfinite(value) THEN value END
+            FROM main.{self._relation}
+            WHERE xbin >= greatest(0, ?) AND xbin < least(?, ?)
+              AND ybin >= greatest(0, ?) AND ybin < least(?, ?)
+            ORDER BY ybin, xbin
+        """, [x_start, x_end, self._columns, y_start, y_end, self._rows]).fetchall()
+        return [HeatmapCell(*row) for row in rows]
+
+    def dense(self, window: GridWindow) -> list[HeatmapCell]:
+        bounds = self._parameters(window)
+        cells = (window.x_end - window.x_start) * (window.y_end - window.y_start)
+        if cells > 262_144:
+            raise ValueError("a dense window can contain at most 262144 cells")
+        rows = self._db.execute(f"""
+            WITH selected_cells AS (
+                SELECT x, y, x >= 0 AND x < ? AND y >= 0 AND y < ? AS inside
+                FROM range(?::BIGINT, ?::BIGINT) AS tx(x) CROSS JOIN range(?::BIGINT, ?::BIGINT) AS ty(y)
+            )
+            SELECT x, y, CASE WHEN NOT inside THEN 'outside' WHEN b.xbin IS NULL THEN 'unobserved'
+                              WHEN NOT coalesce(isfinite(value), false) THEN 'missing_value' ELSE 'observed' END,
+                         CASE WHEN isfinite(value) THEN value END
+            FROM selected_cells AS w LEFT JOIN main.{self._relation} AS b
+                ON w.inside AND w.x = b.xbin AND w.y = b.ybin ORDER BY y, x
+        """, [self._columns, self._rows, *bounds]).fetchall()
+        return [HeatmapCell(*row) for row in rows]
+
+
+@dataclass(frozen=True)
 class VoxelSpec:
     lower: tuple[float, float, float]
     upper: tuple[float, float, float]
