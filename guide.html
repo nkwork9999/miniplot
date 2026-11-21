@@ -69,9 +69,9 @@ LOAD miniplot;
 <hr />
 <h2 id="examples">Examples</h2>
 <h3 id="bar-chart">Bar Chart</h3>
-<p><img src="https://raw.githubusercontent.com/nkwork9999/miniplot/d37132d37769ebdf228cef5d925249e5bff89f92/images/barchart.png" alt="Bar Chart Example" /></p>
+<p><img src="https://raw.githubusercontent.com/nkwork9999/miniplot/484d907e2f7654966c6319ae6c05d1b52d0cfce3/images/barchart.png" alt="Bar Chart Example" /></p>
 <h3 id="3d-scatter-chart">3D Scatter Chart</h3>
-<p><img src="https://raw.githubusercontent.com/nkwork9999/miniplot/d37132d37769ebdf228cef5d925249e5bff89f92/images/3dscatter.png" alt="3D Scatter Chart Example" /></p>
+<p><img src="https://raw.githubusercontent.com/nkwork9999/miniplot/484d907e2f7654966c6319ae6c05d1b52d0cfce3/images/3dscatter.png" alt="3D Scatter Chart Example" /></p>
 <h2 id="usage-examples">Usage Examples</h2>
 <h3 id="additional-chart-apis-source-builds">Additional chart APIs (source builds)</h3>
 <p>The following additions require an extension built from this repository; an older
@@ -162,7 +162,7 @@ multiple charts. <code>chart_report(report_json, output_path)</code> saves it as
 The input is a JSON object with a string <code>title</code> and a nonempty <code>sections</code> array.
 Each section accepts <code>heading</code>, <code>text</code>, and optional Plotly <code>data</code>, <code>layout</code> and
 <code>config</code>. A section needs a nonempty heading/text or chart data. The
-<a href="https://github.com/nkwork9999/miniplot/blob/d37132d37769ebdf228cef5d925249e5bff89f92/docs/report.schema.json">JSON schema</a> describes the contract.</p>
+<a href="https://github.com/nkwork9999/miniplot/blob/484d907e2f7654966c6319ae6c05d1b52d0cfce3/docs/report.schema.json">JSON schema</a> describes the contract.</p>
 <pre><code class="language-sql">SELECT chart_report_html(to_json({
     'title': 'Sales analysis',
     'sections': [{
@@ -512,7 +512,7 @@ COPY (
 <li>Regular HTML can reuse a cached Plotly.js bundle, but caching is not guaranteed; native PNG/PDF export uses the installed local bundle.</li>
 </ul>
 <h2 id="license">License</h2>
-<p>MIT License - see <a href="https://github.com/nkwork9999/miniplot/blob/d37132d37769ebdf228cef5d925249e5bff89f92/LICENSE">LICENSE</a> file</p>
+<p>MIT License - see <a href="https://github.com/nkwork9999/miniplot/blob/484d907e2f7654966c6319ae6c05d1b52d0cfce3/LICENSE">LICENSE</a> file</p>
 <h2 id="acknowledgments">Acknowledgments</h2>
 <ul>
 <li>Built with <a href="https://duckdb.org/">DuckDB</a></li>
@@ -541,6 +541,9 @@ into clipped intervals, ending the state at a missing event or when its maximum 
 <code>TreeMap.summarize</code> rolls leaf weights up to an explicitly selected depth, and <code>TreeMap.chart</code> renders the
 hierarchy as a treemap. <code>TimeSeriesDiff.compare</code> aligns two revisions by time and stable row key.
 <code>TimeSeriesDiff.chart</code> renders their measurements, absolute differences and relative differences.
+<code>SankeyFlow(connection, relation)</code> aggregates <code>stage</code>, <code>source</code>, <code>destination</code> and nonnegative <code>amount</code>
+columns. A minimum link weight groups smaller destinations by source. Use <code>expand</code> to recover their
+original weights and <code>chart</code> to render the staged flow. The summary reports invalid rows separately.
 <code>SparseHeatmap(connection, relation, columns=..., rows=...)</code> reads unique <code>xbin</code>, <code>ybin</code>, <code>value</code> records.
 Use <code>sparse(window)</code> for the observed records or <code>dense(window)</code> for a bounded rectangle including
 unobserved and out-of-bounds cells. Zero and NULL have separate states.
@@ -561,5 +564,5 @@ the <code>duckdb</code> package and the matching installed extension, run the in
 <li><a href="https://duckdb.org/docs/">DuckDB Documentation</a></li>
 </ul>
 
-<footer>Source revision <a href="https://github.com/nkwork9999/miniplot/tree/d37132d37769ebdf228cef5d925249e5bff89f92"><code>d37132d37769</code></a> · DuckDB 2.0.0</footer>
+<footer>Source revision <a href="https://github.com/nkwork9999/miniplot/tree/484d907e2f7654966c6319ae6c05d1b52d0cfce3"><code>484d907e2f76</code></a> · DuckDB 2.0.0</footer>
 </main></div></body></html>

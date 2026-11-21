@@ -28,7 +28,7 @@ WHERE function_name IN ('chart_report_html', 'chart_report', 'chart_export',
 </li>
 <li>
 <p>Build JSON from DuckDB structs with <code>to_json</code>. Validate against
-<a href="https://github.com/nkwork9999/miniplot/blob/d37132d37769ebdf228cef5d925249e5bff89f92/docs/report.schema.json">report.schema.json</a> when producing a report specification.
+<a href="https://github.com/nkwork9999/miniplot/blob/484d907e2f7654966c6319ae6c05d1b52d0cfce3/docs/report.schema.json">report.schema.json</a> when producing a report specification.
 Report fields are plain strings and Plotly trace/layout/config JSON. Raw HTML
 and Markdown are not interpreted. Invalid SQL inputs produce errors;
 <code>TRY(chart_report_html(spec))</code> can recover per row.</p>
@@ -70,5 +70,5 @@ screenshot/PDF output and page/viewport behavior.</li>
 <p>The report contract, embedded specification and SQL export integration are
 project design choices; the references document the underlying capabilities.</p>
 
-<footer>Source revision <a href="https://github.com/nkwork9999/miniplot/tree/d37132d37769ebdf228cef5d925249e5bff89f92"><code>d37132d37769</code></a> · DuckDB 2.0.0</footer>
+<footer>Source revision <a href="https://github.com/nkwork9999/miniplot/tree/484d907e2f7654966c6319ae6c05d1b52d0cfce3"><code>484d907e2f76</code></a> · DuckDB 2.0.0</footer>
 </main></div></body></html>
