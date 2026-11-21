@@ -595,6 +595,9 @@ returns exact points when the current bounds fit the point limit and populated g
 `ChartBuilder(connection, datasets).line(LineChartSpec(...))` reads an existing relation and renders a reduced
 line chart. Register a `TimeSeriesDataset` with a naive TIMESTAMP column, a stable unique ordering column and
 allowed numeric series. The caller supplies dataset and measure IDs, time bounds, title and width.
+`GroupedStatistics.error_bars` returns sample variance and standard-error or normal-approximation intervals,
+with a reason when a group has too few samples. `StateTimeline.reduce` combines equal adjacent observations
+into clipped intervals, ending the state at a missing event or when its maximum validity gap expires.
 
 `TimeSeriesChart(connection).line(times, values, title="Sales", width=1200)` in `python/miniplot_embedded.py` returns HTML. Give it naive datetimes on the same time scale and finite observations. DuckDB retains the first, lowest, highest and last observation of each time bin, deduplicates them by input position and orders them chronologically. Equal timestamps retain input order.
 

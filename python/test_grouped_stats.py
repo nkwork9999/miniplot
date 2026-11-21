@@ -5,7 +5,7 @@ import re
 
 import duckdb
 
-from miniplot_embedded import GroupedStatistics
+from miniplot_embedded import ErrorBarMethod, GroupedStatistics
 
 
 class GroupedStatisticsTests(unittest.TestCase):
@@ -76,3 +76,15 @@ class GroupedStatisticsTests(unittest.TestCase):
         self.assertEqual([(r.group_id, r.mean) for r in coarse], [(100, 20), (200, None)])
         with self.assertRaises(ValueError):
             self.stats.weighted_means([1], [5], [-1])
+
+    def test_error_bars_use_sample_variance_and_explain_missing_groups(self):
+        results = self.stats.error_bars([1] * 4 + [2, 2, 3], [1, 2, 3, None, 6, None, None],
+                                        method=ErrorBarMethod.STANDARD_ERROR)
+        self.assertEqual([(r.group_id, r.count, r.mean, r.reason) for r in results],
+                         [(1, 3, 2, None), (2, 1, 6, "insufficient_samples"), (3, 0, None, "no_samples")])
+        self.assertEqual(results[0].variance, 1.0)
+        self.assertAlmostEqual(results[0].lower, 2 - 1 / 3**0.5)
+        self.assertAlmostEqual(results[0].upper, 2 + 1 / 3**0.5)
+        self.assertIsNone(results[1].lower)
+        only_constant, = self.stats.error_bars([1, 1], [7, 7], method=ErrorBarMethod.NORMAL_95)
+        self.assertEqual((only_constant.lower, only_constant.upper), (7, 7))

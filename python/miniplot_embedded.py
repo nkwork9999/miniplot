@@ -1,7 +1,9 @@
 """A time-series HTML chart rendered on a host-provisioned Miniplot connection."""
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
+from enum import Enum
+from itertools import chain
 from json import dumps
 from math import exp, isfinite, log
 from sys import float_info
@@ -148,6 +150,63 @@ class ChartBuilder:
         """
         sql = _SERIES_SQL.format(point_source=source, segment_expression="0")
         return self._db.execute(sql + _LINE_SQL, [spec.start, spec.end, spec.width, spec.title]).fetchone()[0]
+
+
+@dataclass(frozen=True)
+class StateInterval:
+    start: datetime
+    end: datetime
+    state: str
+
+
+class StateTimeline:
+    """Compress consecutive equal events to half-open, bounded validity intervals."""
+
+    def __init__(self, connection: DuckDBPyConnection):
+        self._db = connection
+
+    def reduce(self, times: list[datetime], states: list[str | None], *,
+               start: datetime, end: datetime, max_gap: timedelta) -> list[StateInterval]:
+        if type(times) is not list or type(states) is not list or len(times) != len(states):
+            raise ValueError("times and states must be lists of equal length")
+        if any(type(t) is not datetime or t.tzinfo is not None for t in chain((start, end), times)):
+            raise ValueError("use naive datetimes on one time scale")
+        if end <= start or type(max_gap) is not timedelta or max_gap <= timedelta(0):
+            raise ValueError("expected a nonempty extent and positive max_gap")
+        if any(state is not None and type(state) is not str for state in states):
+            raise TypeError("state values must be strings or None")
+        rows = self._db.execute("""
+            WITH bounds AS (
+                SELECT ?::TIMESTAMP AS lo, ?::TIMESTAMP AS hi, ?::INTERVAL AS gap
+            ), input AS (SELECT ?::TIMESTAMP[] AS times, ?::VARCHAR[] AS states),
+            events AS (
+                SELECT unnest(times) AS ts, unnest(states) AS state,
+                       generate_subscripts(times, 1) AS ord FROM input
+            ), deduplicated AS (
+                SELECT ts, state FROM events, bounds WHERE ts >= lo - gap AND ts < hi
+                QUALIFY row_number() OVER (PARTITION BY ts ORDER BY ord DESC) = 1
+            ), adjacent AS (
+                SELECT *, lag(ts) OVER w AS previous_time, lag(state) OVER w AS previous_state
+                FROM deduplicated WINDOW w AS (ORDER BY ts)
+            ), numbered AS (
+                SELECT ts, state, count(*) FILTER (
+                    WHERE previous_time IS NULL OR ts > previous_time + gap OR state IS DISTINCT FROM previous_state
+                ) OVER (ORDER BY ts ROWS UNBOUNDED PRECEDING) AS run
+                FROM adjacent, bounds
+            ), runs AS (
+                SELECT min(ts) AS first_sample, max(ts) AS last_sample, any_value(state) AS state
+                FROM numbered GROUP BY run
+            ), stops AS (
+                SELECT *, lead(first_sample) OVER (ORDER BY first_sample) AS next_state FROM runs
+            ), clipped AS (
+                SELECT greatest(first_sample, lo) AS start_time,
+                       least(coalesce(next_state, hi), last_sample + gap, hi) AS end_time, state
+                FROM stops, bounds
+            )
+            SELECT start_time, end_time, state FROM clipped
+            WHERE start_time < end_time AND state IS NOT NULL ORDER BY start_time
+        """, [start, end, max_gap, times, states]).fetchall()
+        return [StateInterval(*row) for row in rows]
 
 
 @dataclass(frozen=True)
@@ -325,6 +384,23 @@ class DegreeCount:
     direction: str
     degree: int
     vertices: int
+
+
+class ErrorBarMethod(Enum):
+    STANDARD_ERROR = 1.0
+    NORMAL_95 = 1.959963984540054
+
+
+@dataclass(frozen=True)
+class ErrorBar:
+    group_id: int
+    count: int
+    mean: float | None
+    variance: float | None
+    lower: float | None
+    upper: float | None
+    method: ErrorBarMethod
+    reason: str | None
 
 
 @dataclass(frozen=True)
@@ -523,3 +599,24 @@ class GroupedStatistics:
         """, [[parents[g.group_id] for g in groups], [g.weighted_sum for g in groups],
               [g.weight for g in groups]]).fetchall()
         return [WeightedMean(*row) for row in rows]
+
+    def error_bars(self, groups: list[int], values: list[float | None], *,
+                   method: ErrorBarMethod) -> list[ErrorBar]:
+        """Calculate sample variance and an interval around each group mean."""
+        self._validate_series(groups, values)
+        if type(method) is not ErrorBarMethod:
+            raise TypeError("expected an ErrorBarMethod")
+        rows = self._db.execute("""
+            WITH observations AS (
+                SELECT unnest(?::BIGINT[]) AS id, unnest(?::DOUBLE[]) AS value
+            ), moments AS (
+                SELECT id, count(value) AS n, favg(value) AS mean, var_samp(value) AS variance
+                FROM observations GROUP BY id
+            ), intervals AS (
+                SELECT *, ? * sqrt(variance / n) AS radius FROM moments
+            )
+            SELECT id, n, mean, variance, mean - radius, mean + radius,
+                   CASE WHEN n = 0 THEN 'no_samples' WHEN n = 1 THEN 'insufficient_samples' END
+            FROM intervals ORDER BY id
+        """, [groups, values, method.value]).fetchall()
+        return [ErrorBar(*row[:-1], method, row[-1]) for row in rows]
