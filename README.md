@@ -1,5 +1,7 @@
 # Miniplot
 
+[Documentation / 全機能ガイド](https://nkwork9999.github.io/miniplot/)
+
 Interactive chart visualization extension for DuckDB - faster than pandas with Plotly-like interactive charts, all from SQL.
 
 ## 🎯 Mission
