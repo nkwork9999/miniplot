@@ -1,4 +1,5 @@
 """A time-series HTML chart rendered on a host-provisioned Miniplot connection."""
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from json import dumps
@@ -9,11 +10,7 @@ from duckdb import DuckDBPyConnection
 
 
 _SERIES_SQL = """
-    WITH points AS (
-        SELECT t.ts, v.y, t.ord
-        FROM unnest(?::TIMESTAMP[]) WITH ORDINALITY AS t(ts, ord)
-        JOIN unnest(?::DOUBLE[]) WITH ORDINALITY AS v(y, ord) USING (ord)
-    ), ticks AS (
+    WITH points AS ({point_source}), ticks AS (
         SELECT *, epoch_us(ts)::HUGEINT AS t, {segment_expression} AS segment
         FROM points
     ), bounds AS (
@@ -27,6 +24,17 @@ _SERIES_SQL = """
             first(ord ORDER BY y DESC, ts, ord), last(ord ORDER BY ts, ord)
         ]) AS ord FROM buckets GROUP BY segment, bin
     )
+"""
+
+_ARRAY_SOURCE = """
+    SELECT t.ts, v.y, t.ord
+    FROM unnest(?::TIMESTAMP[]) WITH ORDINALITY AS t(ts, ord)
+    JOIN unnest(?::DOUBLE[]) WITH ORDINALITY AS v(y, ord) USING (ord)
+"""
+
+_LINE_SQL = """
+    SELECT line_chart_html(list(ts ORDER BY ts, ord), list(y ORDER BY ts, ord), ?)
+    FROM points SEMI JOIN kept USING (ord)
 """
 
 
@@ -55,10 +63,8 @@ class TimeSeriesChart:
         if type(title) is not str:
             raise TypeError("title must be a string")
         self._validate_series(times, values, width, allow_gaps=False)
-        return self._db.execute(_SERIES_SQL.format(segment_expression="0") + """
-            SELECT line_chart_html(list(ts ORDER BY ts, ord), list(y ORDER BY ts, ord), ?)
-            FROM points SEMI JOIN kept USING (ord)
-        """, [times, values, width, title]).fetchone()[0]
+        sql = _SERIES_SQL.format(point_source=_ARRAY_SOURCE, segment_expression="0")
+        return self._db.execute(sql + _LINE_SQL, [times, values, width, title]).fetchone()[0]
 
     def segments(self, times: list[datetime], values: list[float | None], *,
                  width: int) -> list[list[tuple[datetime, float]]]:
@@ -68,12 +74,80 @@ class TimeSeriesChart:
             "count(*) FILTER (WHERE y IS NULL) OVER "
             "(ORDER BY ts, ord ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)"
         )
-        rows = self._db.execute(_SERIES_SQL.format(segment_expression=segment_expression) + """
+        sql = _SERIES_SQL.format(point_source=_ARRAY_SOURCE, segment_expression=segment_expression)
+        rows = self._db.execute(sql + """
             SELECT list(struct_pack(ts := ts, y := y) ORDER BY ts, ord)
             FROM ticks SEMI JOIN kept USING (ord)
             GROUP BY segment ORDER BY segment
         """, [times, values, width]).fetchall()
         return [[(point["ts"], point["y"]) for point in segment] for (segment,) in rows]
+
+
+def _quote_identifier(identifier):
+    if type(identifier) is not str or not identifier or "\0" in identifier:
+        raise ValueError("expected a nonempty identifier without NUL")
+    return '"' + identifier.replace('"', '""') + '"'
+
+
+@dataclass(frozen=True)
+class TimeSeriesDataset:
+    """Trusted main-schema relation, timestamp, unique tie-breaker and numeric series columns."""
+
+    relation: str
+    time_column: str
+    order_column: str
+    measures: Mapping[str, str]
+
+
+@dataclass(frozen=True)
+class LineChartSpec:
+    dataset_id: str
+    measure_id: str
+    start: datetime
+    end: datetime
+    width: int
+    title: str
+
+    def __post_init__(self):
+        for value in (self.dataset_id, self.measure_id, self.title):
+            if type(value) is not str:
+                raise TypeError("dataset, measure and title must be strings")
+        for value in (self.start, self.end):
+            if type(value) is not datetime or value.tzinfo is not None:
+                raise ValueError("expected naive datetimes on one time scale")
+        if self.end <= self.start or type(self.width) is not int or not 1 <= self.width <= 65535:
+            raise ValueError("expected a nonempty time range and width in [1, 65535]")
+
+
+class ChartBuilder:
+    """Resolve caller chart specifications against the host's dataset registry."""
+
+    def __init__(self, connection: DuckDBPyConnection, datasets: Mapping[str, TimeSeriesDataset]):
+        self._db = connection
+        self._datasets = {}
+        for key, dataset in datasets.items():
+            if type(key) is not str or not key or type(dataset) is not TimeSeriesDataset:
+                raise TypeError("expected a registry of TimeSeriesDataset values")
+            measures = {key: _quote_identifier(column) for key, column in dataset.measures.items()}
+            if any(type(key) is not str or not key for key in measures):
+                raise TypeError("measure IDs must be nonempty strings")
+            self._datasets[key] = (_quote_identifier(dataset.relation), _quote_identifier(dataset.time_column),
+                                   _quote_identifier(dataset.order_column), measures)
+
+    def line(self, spec: LineChartSpec) -> str | None:
+        """Project a half-open time window and reduce it before rendering."""
+        if type(spec) is not LineChartSpec:
+            raise TypeError("expected a LineChartSpec")
+        relation, time, order, measures = self._datasets[spec.dataset_id]
+        value = measures[spec.measure_id]
+        source = f"""
+            SELECT {time} AS ts, {value}::DOUBLE AS y, {order} AS ord
+            FROM main.{relation}
+            WHERE {time} >= ?::TIMESTAMP AND {time} < ?::TIMESTAMP
+              AND {order} IS NOT NULL AND isfinite({value}::DOUBLE)
+        """
+        sql = _SERIES_SQL.format(point_source=source, segment_expression="0")
+        return self._db.execute(sql + _LINE_SQL, [spec.start, spec.end, spec.width, spec.title]).fetchone()[0]
 
 
 @dataclass(frozen=True)
@@ -90,6 +164,79 @@ class LogHistogramResult:
     missing: int
     outside: int
     nonpositive: int
+
+
+@dataclass(frozen=True)
+class ScatterExtent:
+    xmin: float
+    ymin: float
+    xmax: float
+    ymax: float
+
+    def __post_init__(self):
+        for low, high in ((self.xmin, self.xmax), (self.ymin, self.ymax)):
+            if (type(low) not in (int, float) or type(high) not in (int, float)
+                or not -float_info.max <= low < high <= float_info.max
+                or not 0 < float(high) - float(low) <= float_info.max):
+                raise ValueError("scatter bounds must have a finite, positive double-precision span")
+
+
+@dataclass(frozen=True)
+class DensityCell:
+    column: int
+    row: int
+    count: int
+
+
+@dataclass(frozen=True)
+class ScatterSelection:
+    visible_count: int
+    cells: tuple[DensityCell, ...]
+    points: tuple[tuple[float, float], ...]
+
+
+class ScatterDensity:
+    """Use a visible point budget to choose exact points or a compact count grid."""
+
+    def __init__(self, connection: DuckDBPyConnection):
+        self._db = connection
+
+    def fetch(self, x: list[float | None], y: list[float | None], extent: ScatterExtent, *,
+              columns: int, rows: int, point_limit: int) -> ScatterSelection:
+        if type(x) is not list or type(y) is not list or len(x) != len(y):
+            raise ValueError("x and y must be lists of equal length")
+        if any(v is not None and (type(v) not in (int, float) or not -float_info.max <= v <= float_info.max)
+               for axis in (x, y) for v in axis):
+            raise ValueError("coordinates must be finite numbers or None")
+        if type(extent) is not ScatterExtent:
+            raise TypeError("expected a ScatterExtent")
+        if any(type(n) is not int or not 1 <= n <= 1024 for n in (columns, rows)):
+            raise ValueError("grid dimensions must be in [1, 1024]")
+        if type(point_limit) is not int or not 0 <= point_limit <= 1_000_000:
+            raise ValueError("point_limit must be in [0, 1000000]")
+        visible, cells, points = self._db.execute("""
+            WITH parameters AS (
+                SELECT ?::DOUBLE[] as xs, ?::DOUBLE[] as ys, ?::DOUBLE as xmin, ?::DOUBLE as ymin,
+                       ?::DOUBLE as xmax, ?::DOUBLE as ymax, ?::INTEGER as nx, ?::INTEGER as ny,
+                       ?::INTEGER as budget
+            ), input AS (
+                SELECT unnest(xs) AS x, unnest(ys) AS y, generate_subscripts(xs, 1) AS ord FROM parameters
+            ), visible AS MATERIALIZED (
+                SELECT x, y, ord FROM input, parameters WHERE x BETWEEN xmin AND xmax AND y BETWEEN ymin AND ymax
+            ), size AS (SELECT count(*) AS n FROM visible),
+            bins AS (
+                SELECT least(nx - 1, floor((x - xmin) / (xmax - xmin) * nx))::INT AS gx,
+                       least(ny - 1, floor((y - ymin) / (ymax - ymin) * ny))::INT AS gy,
+                       count(*) AS hits
+                FROM visible, parameters, size WHERE n > budget GROUP BY gx, gy
+            )
+            SELECT n,
+                (SELECT list(struct_pack(gx := gx, gy := gy, hits := hits) ORDER BY gx, gy) FROM bins),
+                (SELECT list(struct_pack(x := x, y := y) ORDER BY ord) FROM visible WHERE n <= budget)
+            FROM size, parameters
+        """, [x, y, extent.xmin, extent.ymin, extent.xmax, extent.ymax, columns, rows, point_limit]).fetchone()
+        return ScatterSelection(visible, tuple(DensityCell(c["gx"], c["gy"], c["hits"]) for c in cells or ()),
+                                tuple((p["x"], p["y"]) for p in points or ()))
 
 
 class Histogram:

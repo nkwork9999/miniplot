@@ -590,6 +590,11 @@ directly. `top_categories` groups by stable ID, with separate remainder and miss
 including isolated vertices at degree zero.
 `Histogram.count_log(values, lower=0.01, upper=10000, bins=6)` returns exponentially spaced edges in
 the original units, with separate counts for missing, nonpositive and out-of-range observations.
+`ScatterDensity(connection).fetch(x, y, extent, columns=128, rows=128, point_limit=5000)`
+returns exact points when the current bounds fit the point limit and populated grid cells otherwise.
+`ChartBuilder(connection, datasets).line(LineChartSpec(...))` reads an existing relation and renders a reduced
+line chart. Register a `TimeSeriesDataset` with a naive TIMESTAMP column, a stable unique ordering column and
+allowed numeric series. The caller supplies dataset and measure IDs, time bounds, title and width.
 
 `TimeSeriesChart(connection).line(times, values, title="Sales", width=1200)` in `python/miniplot_embedded.py` returns HTML. Give it naive datetimes on the same time scale and finite observations. DuckDB retains the first, lowest, highest and last observation of each time bin, deduplicates them by input position and orders them chronologically. Equal timestamps retain input order.
 

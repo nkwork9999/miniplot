@@ -5,7 +5,7 @@ import unittest
 from datetime import datetime, timedelta
 
 import duckdb
-from miniplot_embedded import TimeSeriesChart
+from miniplot_embedded import ChartBuilder, LineChartSpec, TimeSeriesChart, TimeSeriesDataset
 
 
 class ChartTests(unittest.TestCase):
@@ -41,3 +41,25 @@ class ChartTests(unittest.TestCase):
         for times, values, width in [([], [], 1), ([0], [1, 2], 1), ([0], [float("nan")], 1), ([0], [1], 0)]:
             with self.subTest(values=values, width=width), self.assertRaises(ValueError):
                 self.draw(times, values, width)
+
+    def test_registered_relation_matches_array_chart_with_extra_columns_hidden(self):
+        self.db.execute("""
+            CREATE TABLE "daily points"(sequence BIGINT PRIMARY KEY, observed TIMESTAMP, sales DOUBLE, private VARCHAR);
+            INSERT INTO "daily points"
+            SELECT i, TIMESTAMP '2026-01-01' + i * INTERVAL 1 SECOND,
+                   [0, 80, 1, -4, 1, 0, 90][i+1], 'internal'
+            FROM range(7) AS t(i);
+        """)
+        builder = ChartBuilder(self.db, {"daily": TimeSeriesDataset("daily points", "observed", "sequence",
+                                                                      {"sales": "sales"})})
+        start = datetime(2026, 1, 1)
+        end = start + timedelta(seconds=6)
+        spec = LineChartSpec("daily", "sales", start, end, width=1, title="Bob's <chart>")
+        html = builder.line(spec)
+        self.assertIn("Bob&#39;s &lt;chart&gt;", html)
+        self.assertNotIn("internal", html)
+        encoded = re.search(r"var data = JSON.parse\('(.*?)'\);", html).group(1)
+        self.assertEqual(json.loads(encoded.replace(r'\"', '"'))[0],
+                         self.draw([0, 1, 2, 3, 4, 5], [0, 80, 1, -4, 1, 0], 1))
+        with self.assertRaises(KeyError):
+            builder.line(LineChartSpec("daily", "private", start, end, width=1, title="Hidden"))
