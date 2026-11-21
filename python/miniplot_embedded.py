@@ -530,16 +530,19 @@ class VoxelGrid:
         axes = ("x", "y", "z")
         bounds = ", ".join(f"?::DOUBLE AS {kind}_{axis}" for kind in ("lo", "hi") for axis in axes)
         sizes = ", ".join(f"?::INTEGER AS bins_{axis}" for axis in axes)
+        units = ", ".join(f"({axis} - lo_{axis}) / (hi_{axis} - lo_{axis}) AS unit_{axis}" for axis in axes)
         cells = ", ".join(
-            f"least(bins_{axis} - 1, floor(({axis} - lo_{axis}) / (hi_{axis} - lo_{axis}) * bins_{axis}))::INT"
-            f" AS cell_{axis}" for axis in axes
+            f"least(bins_{axis} - 1, floor(unit_{axis} * bins_{axis}))::INT AS cell_{axis}" for axis in axes
         )
         filters = " AND ".join(f"{axis} BETWEEN lo_{axis} AND hi_{axis} AND isfinite({axis})" for axis in axes)
+        self._centers = ", ".join(
+            f"min(lo_{axis}) + favg(unit_{axis}) * (max(hi_{axis}) - min(lo_{axis}))" for axis in axes
+        )
         self._buckets = f"""
-            WITH bounds AS (SELECT {bounds}, {sizes}), cells AS (
-                SELECT id, x, y, z, CASE WHEN isfinite(color) THEN color END AS color, {cells}
+            WITH bounds AS (SELECT {bounds}, {sizes}), scaled AS (
+                SELECT id, x, y, z, CASE WHEN isfinite(color) THEN color END AS color, bounds.*, {units}
                 FROM main.{source} CROSS JOIN bounds WHERE {filters}
-            )
+            ), cells AS (SELECT *, {cells} FROM scaled)
         """
 
     @staticmethod
@@ -549,8 +552,8 @@ class VoxelGrid:
         return [*spec.lower, *spec.upper, *spec.bins]
 
     def summarize(self, spec: VoxelSpec) -> list[Voxel]:
-        rows = self._db.execute(self._buckets + """
-            SELECT cell_x, cell_y, cell_z, count(*), favg(x), favg(y), favg(z), favg(color)
+        rows = self._db.execute(self._buckets + f"""
+            SELECT cell_x, cell_y, cell_z, count(*), {self._centers}, favg(color)
             FROM cells GROUP BY cell_x, cell_y, cell_z ORDER BY cell_x, cell_y, cell_z
         """, self._bounds(spec)).fetchall()
         return [Voxel((i, j, k), count, (x, y, z), color) for i, j, k, count, x, y, z, color in rows]
@@ -571,6 +574,25 @@ class VoxelGrid:
             ORDER BY id LIMIT ?
         """, [*parameters, *cell, after_id, after_id, limit]).fetchall()
         return [VoxelPoint(key, (x, y, z), color) for key, x, y, z, color in rows]
+
+    def chart(self, spec: VoxelSpec, *, title: str) -> str:
+        if type(title) is not str:
+            raise TypeError("title must be a string")
+        cells = self.summarize(spec)
+        markers = [cell.count for cell in cells]
+        trace = {
+            "type": "scatter3d", "mode": "markers",
+            "x": [cell.center[0] for cell in cells], "y": [cell.center[1] for cell in cells],
+            "z": [cell.center[2] for cell in cells],
+            "customdata": [[*cell.cell, cell.count] for cell in cells],
+            "hovertemplate": "Cell %{customdata[0]}, %{customdata[1]}, %{customdata[2]}<br>Count %{customdata[3]}",
+            "marker": {"size": markers, "sizemode": "area", "sizemin": 2,
+                       "sizeref": max(markers, default=1) / 80,
+                       "color": [cell.mean_color if cell.mean_color is None or isfinite(cell.mean_color) else None
+                                 for cell in cells]},
+        }
+        report = dumps({"title": title, "sections": [{"data": [trace]}]}, allow_nan=False)
+        return self._db.execute("SELECT chart_report_html(?::VARCHAR)", [report]).fetchone()[0]
 
 
 @dataclass(frozen=True)

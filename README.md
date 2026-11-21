@@ -607,7 +607,7 @@ hierarchy as a treemap. `TimeSeriesDiff.compare` aligns two revisions by time an
 `TimeSeriesDiff.chart` renders their measurements, absolute differences and relative differences.
 `VoxelGrid(connection, relation).summarize(VoxelSpec(...))` bins points from `id`, `x`, `y`, `z` and
 `color` columns. Each occupied cell returns a count, centroid and mean color. Use `points` for a
-bounded page of the original points from one selected cell.
+bounded page of the original points from one selected cell. Call `chart` to render occupied cells in 3D.
 
 `TimeSeriesChart(connection).line(times, values, title="Sales", width=1200)` in `python/miniplot_embedded.py` returns HTML. Give it naive datetimes on the same time scale and finite observations. DuckDB retains the first, lowest, highest and last observation of each time bin, deduplicates them by input position and orders them chronologically. Equal timestamps retain input order.
 

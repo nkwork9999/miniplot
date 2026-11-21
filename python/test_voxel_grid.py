@@ -1,3 +1,6 @@
+import json
+import os
+import re
 import unittest
 
 import duckdb
@@ -29,3 +32,21 @@ class VoxelGridTests(unittest.TestCase):
             self.assertEqual(grid.points(spec, (1, 0, 0), limit=1), [])
             with self.assertRaises(ValueError):
                 grid.points(spec, (1, 2, 0), limit=1)
+
+
+    def test_3d_chart_uses_occupied_cells_and_stable_selection_keys(self):
+        artifact = os.getenv("MINIPLOT_TEST_EXTENSION")
+        with duckdb.connect(config={"allow_unsigned_extensions": bool(artifact)}) as db:
+            db.load_extension(artifact or "miniplot")
+            db.execute("CREATE TABLE cloud AS SELECT 1::BIGINT AS id, 4e307 AS x, 0.5 AS y, 0.5 AS z, NULL::DOUBLE AS color")
+            db.execute("INSERT INTO cloud SELECT i, 4e307, 0.5, 0.5, NULL FROM range(2,12) t(i)")
+            grid = VoxelGrid(db, "cloud")
+            spec = VoxelSpec((0, 0, 0), (1e308, 1, 1), (2, 2, 2))
+            html = grid.chart(spec, title="3D observations")
+        match = re.search(r'<script[^>]*id="miniplot-report"[^>]*>(.*?)</script>', html, re.DOTALL)
+        self.assertIsNotNone(match)
+        trace, = json.loads(match[1])["sections"][0]["data"]
+        self.assertEqual(trace["type"], "scatter3d")
+        self.assertEqual(trace["customdata"], [[0, 1, 1, 11]])
+        self.assertAlmostEqual(trace["x"][0] / 1e307, 4.0)
+        self.assertEqual(trace["marker"]["size"], [11])
