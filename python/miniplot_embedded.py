@@ -6,7 +6,7 @@ from enum import Enum
 from graphlib import CycleError, TopologicalSorter
 from itertools import chain
 from json import dumps
-from math import exp, isfinite, log
+from math import exp, isfinite, log, prod
 from sys import float_info
 
 from duckdb import DuckDBPyConnection
@@ -488,6 +488,89 @@ class TimeSeriesDiff:
             "title": title, "sections": sections,
         }, allow_nan=False)]).fetchone()
         return html
+
+
+@dataclass(frozen=True)
+class VoxelSpec:
+    lower: tuple[float, float, float]
+    upper: tuple[float, float, float]
+    bins: tuple[int, int, int]
+
+    def __post_init__(self):
+        if any(type(values) is not tuple or len(values) != 3 for values in (self.lower, self.upper, self.bins)):
+            raise ValueError("provide three bounds and cell counts")
+        for lo, hi in zip(self.lower, self.upper):
+            if not all(type(n) in (int, float) and isfinite(n) for n in (lo, hi)) or not 0 < hi - lo < float("inf"):
+                raise ValueError("every axis must have an increasing finite span")
+        if any(type(n) is not int or not 1 <= n <= 256 for n in self.bins) or prod(self.bins) > 262_144:
+            raise ValueError("the grid may have up to 256 cells on each axis and 262144 cells overall")
+
+
+@dataclass(frozen=True)
+class Voxel:
+    cell: tuple[int, int, int]
+    count: int
+    center: tuple[float, float, float]
+    mean_color: float | None
+
+
+@dataclass(frozen=True)
+class VoxelPoint:
+    point_id: int
+    position: tuple[float, float, float]
+    color: float | None
+
+
+class VoxelGrid:
+    """Aggregate three-dimensional points in a registered DuckDB table."""
+
+    def __init__(self, connection: DuckDBPyConnection, relation: str):
+        self._db = connection
+        source = _quote_identifier(relation)
+        axes = ("x", "y", "z")
+        bounds = ", ".join(f"?::DOUBLE AS {kind}_{axis}" for kind in ("lo", "hi") for axis in axes)
+        sizes = ", ".join(f"?::INTEGER AS bins_{axis}" for axis in axes)
+        cells = ", ".join(
+            f"least(bins_{axis} - 1, floor(({axis} - lo_{axis}) / (hi_{axis} - lo_{axis}) * bins_{axis}))::INT"
+            f" AS cell_{axis}" for axis in axes
+        )
+        filters = " AND ".join(f"{axis} BETWEEN lo_{axis} AND hi_{axis} AND isfinite({axis})" for axis in axes)
+        self._buckets = f"""
+            WITH bounds AS (SELECT {bounds}, {sizes}), cells AS (
+                SELECT id, x, y, z, CASE WHEN isfinite(color) THEN color END AS color, {cells}
+                FROM main.{source} CROSS JOIN bounds WHERE {filters}
+            )
+        """
+
+    @staticmethod
+    def _bounds(spec):
+        if type(spec) is not VoxelSpec:
+            raise TypeError("expected a VoxelSpec")
+        return [*spec.lower, *spec.upper, *spec.bins]
+
+    def summarize(self, spec: VoxelSpec) -> list[Voxel]:
+        rows = self._db.execute(self._buckets + """
+            SELECT cell_x, cell_y, cell_z, count(*), favg(x), favg(y), favg(z), favg(color)
+            FROM cells GROUP BY cell_x, cell_y, cell_z ORDER BY cell_x, cell_y, cell_z
+        """, self._bounds(spec)).fetchall()
+        return [Voxel((i, j, k), count, (x, y, z), color) for i, j, k, count, x, y, z, color in rows]
+
+    def points(self, spec: VoxelSpec, cell: tuple[int, int, int], *, limit: int,
+               after_id: int | None = None) -> list[VoxelPoint]:
+        parameters = self._bounds(spec)
+        if (type(cell) is not tuple or len(cell) != 3 or
+                any(type(i) is not int or not 0 <= i < n for i, n in zip(cell, spec.bins))):
+            raise ValueError("cell coordinates must be inside the grid")
+        if type(limit) is not int or not 1 <= limit <= 10_000:
+            raise ValueError("limit must be an integer between 1 and 10000")
+        if after_id is not None and (type(after_id) is not int or not -(1 << 63) <= after_id < 1 << 63):
+            raise ValueError("after_id must be a signed 64-bit integer or None")
+        rows = self._db.execute(self._buckets + """
+            SELECT id, x, y, z, color FROM cells WHERE (cell_x, cell_y, cell_z) = (?, ?, ?)
+                AND (?::BIGINT IS NULL OR id > ?::BIGINT)
+            ORDER BY id LIMIT ?
+        """, [*parameters, *cell, after_id, after_id, limit]).fetchall()
+        return [VoxelPoint(key, (x, y, z), color) for key, x, y, z, color in rows]
 
 
 @dataclass(frozen=True)
