@@ -1,17 +1,17 @@
 <!doctype html>
-<html lang="ja">
+<html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="DuckDBの集計をグラフ、HTMLレポート、画像出力につなぐ可視化拡張。">
-<title>レポートと組み込み · Miniplot</title><link rel="stylesheet" href="style.css">
+<meta name="description" content="Turn DuckDB queries into interactive charts, HTML reports, and image exports.">
+<title>Reports and integration · Miniplot</title><link rel="stylesheet" href="style.css">
 <script src="search.js" defer></script>
 </head>
 <body data-project="miniplot">
-<a class="skip" href="#main">本文へ移動</a>
+<a class="skip" href="#main">Skip to content</a>
 <header class="masthead"><a href="index.html" class="product">Miniplot</a>
 <a href="https://github.com/nkwork9999/miniplot">GitHub ↗</a></header>
-<div class="layout"><nav aria-label="ドキュメント"><a href="index.html">概要</a><a href="functions.html">SQL リファレンス</a><a href="python.html">Python 組み込み API</a><a href="guide.html">利用ガイド</a><a href="reports.html" aria-current="page">レポートと組み込み</a><a href="performance.html">性能試験</a></nav>
-<main id="main"><details class="toc" open><summary>このページの目次</summary><ul><li class="h2"><a href="#primary-references-used-in-the-design">Primary references used in the design</a></li></ul></details><h1 id="sql-to-artifact-workflow-for-agents">SQL-to-artifact workflow for agents</h1>
+<div class="layout"><nav aria-label="Documentation"><a href="index.html">Overview</a><a href="functions.html">SQL reference</a><a href="python.html">Embedded Python API</a><a href="guide.html">User guide</a><a href="reports.html" aria-current="page">Reports and integration</a><a href="performance.html">Performance tests</a></nav>
+<main id="main"><details class="toc" open><summary>On this page</summary><ul><li class="h2"><a href="#primary-references-used-in-the-design">Primary references used in the design</a></li></ul></details><h1 id="sql-to-artifact-workflow-for-agents">SQL-to-artifact workflow for agents</h1>
 <p>Prefer a structured specification over assembling executable JavaScript or raw HTML.
 Miniplot does not invoke an LLM. These APIs let an existing agent create, inspect,
 reproduce and export artifacts through SQL.</p>
@@ -28,7 +28,7 @@ WHERE function_name IN ('chart_report_html', 'chart_report', 'chart_export',
 </li>
 <li>
 <p>Build JSON from DuckDB structs with <code>to_json</code>. Validate against
-<a href="https://github.com/nkwork9999/miniplot/blob/e66d4aa6687a1fcad0bf6a18b447399b160d4959/docs/report.schema.json">report.schema.json</a> when producing a report specification.
+<a href="https://github.com/nkwork9999/miniplot/blob/d37132d37769ebdf228cef5d925249e5bff89f92/docs/report.schema.json">report.schema.json</a> when producing a report specification.
 Report fields are plain strings and Plotly trace/layout/config JSON. Raw HTML
 and Markdown are not interpreted. Invalid SQL inputs produce errors;
 <code>TRY(chart_report_html(spec))</code> can recover per row.</p>
@@ -70,5 +70,5 @@ screenshot/PDF output and page/viewport behavior.</li>
 <p>The report contract, embedded specification and SQL export integration are
 project design choices; the references document the underlying capabilities.</p>
 
-<footer>対応ソース <a href="https://github.com/nkwork9999/miniplot/tree/e66d4aa6687a1fcad0bf6a18b447399b160d4959"><code>e66d4aa6687a</code></a> · DuckDB 2.0.0</footer>
+<footer>Source revision <a href="https://github.com/nkwork9999/miniplot/tree/d37132d37769ebdf228cef5d925249e5bff89f92"><code>d37132d37769</code></a> · DuckDB 2.0.0</footer>
 </main></div></body></html>

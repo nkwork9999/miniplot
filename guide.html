@@ -1,17 +1,18 @@
 <!doctype html>
-<html lang="ja">
+<html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="DuckDBの集計をグラフ、HTMLレポート、画像出力につなぐ可視化拡張。">
-<title>利用ガイド · Miniplot</title><link rel="stylesheet" href="style.css">
+<meta name="description" content="Turn DuckDB queries into interactive charts, HTML reports, and image exports.">
+<title>User guide · Miniplot</title><link rel="stylesheet" href="style.css">
 <script src="search.js" defer></script>
 </head>
 <body data-project="miniplot">
-<a class="skip" href="#main">本文へ移動</a>
+<a class="skip" href="#main">Skip to content</a>
 <header class="masthead"><a href="index.html" class="product">Miniplot</a>
 <a href="https://github.com/nkwork9999/miniplot">GitHub ↗</a></header>
-<div class="layout"><nav aria-label="ドキュメント"><a href="index.html">概要</a><a href="functions.html">SQL リファレンス</a><a href="python.html">Python 組み込み API</a><a href="guide.html" aria-current="page">利用ガイド</a><a href="reports.html">レポートと組み込み</a><a href="performance.html">性能試験</a></nav>
-<main id="main"><details class="toc" open><summary>このページの目次</summary><ul><li class="h2"><a href="#-mission">🎯 Mission</a></li><li class="h2"><a href="#-whats-new-in-v003">✨ What&#x27;s New in v0.0.3</a></li><li class="h2"><a href="#installation">Installation</a></li><li class="h2"><a href="#-easiest-example---30-seconds-to-your-first-chart">🚀 Easiest Example - 30 Seconds to Your First Chart</a></li><li class="h2"><a href="#examples">Examples</a></li><li class="h3"><a href="#bar-chart">Bar Chart</a></li><li class="h3"><a href="#3d-scatter-chart">3D Scatter Chart</a></li><li class="h2"><a href="#usage-examples">Usage Examples</a></li><li class="h3"><a href="#additional-chart-apis-source-builds">Additional chart APIs (source builds)</a></li><li class="h3"><a href="#narrative-html-reports-for-agents">Narrative HTML reports for agents</a></li><li class="h3"><a href="#png-and-pdf-output-directly-from-sql-optional-native-tool">PNG and PDF output directly from SQL (optional native tool)</a></li><li class="h3"><a href="#large-data-performance-and-validation">Large-data performance and validation</a></li><li class="h3"><a href="#custom-plotly-json-3">Custom Plotly JSON (#3)</a></li><li class="h3"><a href="#dates-and-timestamps-on-2d-scatter-axes-4">Dates and timestamps on 2D scatter axes (#4)</a></li><li class="h3"><a href="#numeric-and-time-axes-for-line-and-area-charts">Numeric and time axes for line and area charts</a></li><li class="h3"><a href="#discover-functions-through-sql-5">Discover functions through SQL (#5)</a></li><li class="h3"><a href="#distribution-charts-histograms-and-box-plots">Distribution charts: histograms and box plots</a></li><li class="h3"><a href="#basic-charts">Basic Charts</a></li><li class="h3"><a href="#3d-scatter-charts-new-in-v003">3D Scatter Charts (New in v0.0.3)</a></li><li class="h3"><a href="#output-control-new-in-v003">Output Control (New in v0.0.3)</a></li><li class="h3"><a href="#unicode-support-new-in-v003">Unicode Support (New in v0.0.3)</a></li><li class="h3"><a href="#working-with-tables">Working with Tables</a></li><li class="h3"><a href="#working-with-csv-files">Working with CSV Files</a></li><li class="h3"><a href="#advanced-csv-processing">Advanced CSV Processing</a></li><li class="h3"><a href="#batch-chart-generation-with-copy-to">Batch Chart Generation with COPY TO</a></li><li class="h2"><a href="#requirements">Requirements</a></li><li class="h2"><a href="#license">License</a></li><li class="h2"><a href="#acknowledgments">Acknowledgments</a></li><li class="h2"><a href="#embedded-time-series-chart">Embedded time-series chart</a></li><li class="h2"><a href="#links">Links</a></li></ul></details><h1 id="miniplot">Miniplot</h1>
+<div class="layout"><nav aria-label="Documentation"><a href="index.html">Overview</a><a href="functions.html">SQL reference</a><a href="python.html">Embedded Python API</a><a href="guide.html" aria-current="page">User guide</a><a href="reports.html">Reports and integration</a><a href="performance.html">Performance tests</a></nav>
+<main id="main"><details class="toc" open><summary>On this page</summary><ul><li class="h2"><a href="#-mission">🎯 Mission</a></li><li class="h2"><a href="#-whats-new-in-v003">✨ What&#x27;s New in v0.0.3</a></li><li class="h2"><a href="#installation">Installation</a></li><li class="h2"><a href="#-easiest-example---30-seconds-to-your-first-chart">🚀 Easiest Example - 30 Seconds to Your First Chart</a></li><li class="h2"><a href="#examples">Examples</a></li><li class="h3"><a href="#bar-chart">Bar Chart</a></li><li class="h3"><a href="#3d-scatter-chart">3D Scatter Chart</a></li><li class="h2"><a href="#usage-examples">Usage Examples</a></li><li class="h3"><a href="#additional-chart-apis-source-builds">Additional chart APIs (source builds)</a></li><li class="h3"><a href="#narrative-html-reports-for-agents">Narrative HTML reports for agents</a></li><li class="h3"><a href="#png-and-pdf-output-directly-from-sql-optional-native-tool">PNG and PDF output directly from SQL (optional native tool)</a></li><li class="h3"><a href="#large-data-performance-and-validation">Large-data performance and validation</a></li><li class="h3"><a href="#custom-plotly-json-3">Custom Plotly JSON (#3)</a></li><li class="h3"><a href="#dates-and-timestamps-on-2d-scatter-axes-4">Dates and timestamps on 2D scatter axes (#4)</a></li><li class="h3"><a href="#numeric-and-time-axes-for-line-and-area-charts">Numeric and time axes for line and area charts</a></li><li class="h3"><a href="#discover-functions-through-sql-5">Discover functions through SQL (#5)</a></li><li class="h3"><a href="#distribution-charts-histograms-and-box-plots">Distribution charts: histograms and box plots</a></li><li class="h3"><a href="#basic-charts">Basic Charts</a></li><li class="h3"><a href="#3d-scatter-charts-new-in-v003">3D Scatter Charts (New in v0.0.3)</a></li><li class="h3"><a href="#output-control-new-in-v003">Output Control (New in v0.0.3)</a></li><li class="h3"><a href="#unicode-support-new-in-v003">Unicode Support (New in v0.0.3)</a></li><li class="h3"><a href="#working-with-tables">Working with Tables</a></li><li class="h3"><a href="#working-with-csv-files">Working with CSV Files</a></li><li class="h3"><a href="#advanced-csv-processing">Advanced CSV Processing</a></li><li class="h3"><a href="#batch-chart-generation-with-copy-to">Batch Chart Generation with COPY TO</a></li><li class="h2"><a href="#requirements">Requirements</a></li><li class="h2"><a href="#license">License</a></li><li class="h2"><a href="#acknowledgments">Acknowledgments</a></li><li class="h2"><a href="#embedded-time-series-chart">Embedded time-series chart</a></li><li class="h2"><a href="#links">Links</a></li></ul></details><h1 id="miniplot">Miniplot</h1>
+<p><a href="https://nkwork9999.github.io/miniplot/">Full documentation</a></p>
 <p>Interactive chart visualization extension for DuckDB - faster than pandas with Plotly-like interactive charts, all from SQL.</p>
 <h2 id="-mission">🎯 Mission</h2>
 <p><strong>&quot;One tool. One query. Instant visualization.&quot;</strong></p>
@@ -68,9 +69,9 @@ LOAD miniplot;
 <hr />
 <h2 id="examples">Examples</h2>
 <h3 id="bar-chart">Bar Chart</h3>
-<p><img src="https://raw.githubusercontent.com/nkwork9999/miniplot/e66d4aa6687a1fcad0bf6a18b447399b160d4959/images/barchart.png" alt="Bar Chart Example" /></p>
+<p><img src="https://raw.githubusercontent.com/nkwork9999/miniplot/d37132d37769ebdf228cef5d925249e5bff89f92/images/barchart.png" alt="Bar Chart Example" /></p>
 <h3 id="3d-scatter-chart">3D Scatter Chart</h3>
-<p><img src="https://raw.githubusercontent.com/nkwork9999/miniplot/e66d4aa6687a1fcad0bf6a18b447399b160d4959/images/3dscatter.png" alt="3D Scatter Chart Example" /></p>
+<p><img src="https://raw.githubusercontent.com/nkwork9999/miniplot/d37132d37769ebdf228cef5d925249e5bff89f92/images/3dscatter.png" alt="3D Scatter Chart Example" /></p>
 <h2 id="usage-examples">Usage Examples</h2>
 <h3 id="additional-chart-apis-source-builds">Additional chart APIs (source builds)</h3>
 <p>The following additions require an extension built from this repository; an older
@@ -161,7 +162,7 @@ multiple charts. <code>chart_report(report_json, output_path)</code> saves it as
 The input is a JSON object with a string <code>title</code> and a nonempty <code>sections</code> array.
 Each section accepts <code>heading</code>, <code>text</code>, and optional Plotly <code>data</code>, <code>layout</code> and
 <code>config</code>. A section needs a nonempty heading/text or chart data. The
-<a href="https://github.com/nkwork9999/miniplot/blob/e66d4aa6687a1fcad0bf6a18b447399b160d4959/docs/report.schema.json">JSON schema</a> describes the contract.</p>
+<a href="https://github.com/nkwork9999/miniplot/blob/d37132d37769ebdf228cef5d925249e5bff89f92/docs/report.schema.json">JSON schema</a> describes the contract.</p>
 <pre><code class="language-sql">SELECT chart_report_html(to_json({
     'title': 'Sales analysis',
     'sections': [{
@@ -403,9 +404,9 @@ SELECT scatter_3d_chart(
 <h3 id="unicode-support-new-in-v003">Unicode Support (New in v0.0.3)</h3>
 <pre><code class="language-sql">-- Japanese titles and labels
 SELECT bar_chart(
-    ['春', '夏', '秋', '冬'],
+    ['Spring', 'Summer', 'Autumn', 'Winter'],
     [15.0, 28.0, 18.0, 5.0],
-    '季節別平均気温（℃）'
+    'Average temperature by season (°C)'
 );
 
 -- Japanese data with timestamps
@@ -413,8 +414,8 @@ SELECT scatter_3d_chart(
     [10.0, 20.0, 30.0],
     [15.0, 25.0, 20.0],
     [5.0, 10.0, 8.0],
-    ['午前', '正午', '午後'],
-    '温度センサー',
+    ['Morning', 'Noon', 'Afternoon'],
+    'Temperature sensor',
     'temp_sensor.html'
 );
 </code></pre>
@@ -511,7 +512,7 @@ COPY (
 <li>Regular HTML can reuse a cached Plotly.js bundle, but caching is not guaranteed; native PNG/PDF export uses the installed local bundle.</li>
 </ul>
 <h2 id="license">License</h2>
-<p>MIT License - see <a href="https://github.com/nkwork9999/miniplot/blob/e66d4aa6687a1fcad0bf6a18b447399b160d4959/LICENSE">LICENSE</a> file</p>
+<p>MIT License - see <a href="https://github.com/nkwork9999/miniplot/blob/d37132d37769ebdf228cef5d925249e5bff89f92/LICENSE">LICENSE</a> file</p>
 <h2 id="acknowledgments">Acknowledgments</h2>
 <ul>
 <li>Built with <a href="https://duckdb.org/">DuckDB</a></li>
@@ -519,6 +520,33 @@ COPY (
 <li>Written in C++</li>
 </ul>
 <h2 id="embedded-time-series-chart">Embedded time-series chart</h2>
+<p>Use <code>GroupedStatistics(connection)</code> for compact data and charts. <code>boxplot</code> returns continuous quartiles,
+observed Tukey whiskers and a bounded list of outlier examples. <code>boxplot_html</code> renders the summaries
+directly. <code>top_categories</code> groups by stable ID, with separate remainder and missing totals.
+<code>weighted_means</code> keeps the weighted sum and valid weight that <code>combine_weighted_means</code> uses for rollups.
+<code>degree_distribution</code> returns incoming and outgoing degree histograms from a vertex list and weighted directed edges,
+including isolated vertices at degree zero.
+<code>Histogram.count_log(values, lower=0.01, upper=10000, bins=6)</code> returns exponentially spaced edges in
+the original units, with separate counts for missing, nonpositive and out-of-range observations.
+<code>ScatterDensity(connection).fetch(x, y, extent, columns=128, rows=128, point_limit=5000)</code>
+returns exact points when the current bounds fit the point limit and populated grid cells otherwise.
+<code>ChartBuilder(connection, datasets).line(LineChartSpec(...))</code> reads an existing relation and renders a reduced
+line chart. Register a <code>TimeSeriesDataset</code> with a naive TIMESTAMP column, a stable unique ordering column and
+allowed numeric series. The caller supplies dataset and measure IDs, time bounds, title and width.
+<code>GroupedStatistics.error_bars</code> returns sample variance and standard-error or normal-approximation intervals,
+with a reason when a group has too few samples. <code>StateTimeline.reduce</code> combines equal adjacent observations
+into clipped intervals, ending the state at a missing event or when its maximum validity gap expires.
+<code>CalendarData.daily</code> fills a business-timezone calendar using distinct states for missing and uncovered days.
+<code>OHLC.bars</code> aggregates typed trades over explicit half-open sessions, using exchange sequence to order ties.
+<code>TreeMap.summarize</code> rolls leaf weights up to an explicitly selected depth, and <code>TreeMap.chart</code> renders the
+hierarchy as a treemap. <code>TimeSeriesDiff.compare</code> aligns two revisions by time and stable row key.
+<code>TimeSeriesDiff.chart</code> renders their measurements, absolute differences and relative differences.
+<code>SparseHeatmap(connection, relation, columns=..., rows=...)</code> reads unique <code>xbin</code>, <code>ybin</code>, <code>value</code> records.
+Use <code>sparse(window)</code> for the observed records or <code>dense(window)</code> for a bounded rectangle including
+unobserved and out-of-bounds cells. Zero and NULL have separate states.
+<code>VoxelGrid(connection, relation).summarize(VoxelSpec(...))</code> bins points from <code>id</code>, <code>x</code>, <code>y</code>, <code>z</code> and
+<code>color</code> columns. Each occupied cell returns a count, centroid and mean color. Use <code>points</code> for a
+bounded page of the original points from one selected cell. Call <code>chart</code> to render occupied cells in 3D.</p>
 <p><code>TimeSeriesChart(connection).line(times, values, title=&quot;Sales&quot;, width=1200)</code> in <code>python/miniplot_embedded.py</code> returns HTML. Give it naive datetimes on the same time scale and finite observations. DuckDB retains the first, lowest, highest and last observation of each time bin, deduplicates them by input position and orders them chronologically. Equal timestamps retain input order.</p>
 <p>Use <code>segments(times, values, width=1200)</code> on the same chart to obtain reduced chronological segments separated by missing observations. For fixed boundaries, <code>Histogram(connection).count(values, edges)</code> returns counts for every bin, including empty bins, and two separate totals for missing and out-of-range samples. The last bin includes its right edge.</p>
 <p>Give each active caller its own connection with the matching extension loaded. With Python 3.10+,
@@ -533,5 +561,5 @@ the <code>duckdb</code> package and the matching installed extension, run the in
 <li><a href="https://duckdb.org/docs/">DuckDB Documentation</a></li>
 </ul>
 
-<footer>対応ソース <a href="https://github.com/nkwork9999/miniplot/tree/e66d4aa6687a1fcad0bf6a18b447399b160d4959"><code>e66d4aa6687a</code></a> · DuckDB 2.0.0</footer>
+<footer>Source revision <a href="https://github.com/nkwork9999/miniplot/tree/d37132d37769ebdf228cef5d925249e5bff89f92"><code>d37132d37769</code></a> · DuckDB 2.0.0</footer>
 </main></div></body></html>

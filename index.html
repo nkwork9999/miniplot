@@ -1,23 +1,23 @@
 <!doctype html>
-<html lang="ja">
+<html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="DuckDBの集計をグラフ、HTMLレポート、画像出力につなぐ可視化拡張。">
-<title>概要 · Miniplot</title><link rel="stylesheet" href="style.css">
+<meta name="description" content="Turn DuckDB queries into interactive charts, HTML reports, and image exports.">
+<title>Overview · Miniplot</title><link rel="stylesheet" href="style.css">
 <script src="search.js" defer></script>
 </head>
 <body data-project="miniplot">
-<a class="skip" href="#main">本文へ移動</a>
+<a class="skip" href="#main">Skip to content</a>
 <header class="masthead"><a href="index.html" class="product">Miniplot</a>
 <a href="https://github.com/nkwork9999/miniplot">GitHub ↗</a></header>
-<div class="layout"><nav aria-label="ドキュメント"><a href="index.html" aria-current="page">概要</a><a href="functions.html">SQL リファレンス</a><a href="python.html">Python 組み込み API</a><a href="guide.html">利用ガイド</a><a href="reports.html">レポートと組み込み</a><a href="performance.html">性能試験</a></nav>
-<main id="main"><section class="intro"><h1>Miniplot</h1><p>DuckDBの集計をグラフ、HTMLレポート、画像出力につなぐ可視化拡張。</p>
-<div class="quick-links"><a href="guide.html">利用ガイド</a><a href="functions.html">SQL リファレンス</a></div></section>
-<h2>クイックスタート</h2><pre><code>INSTALL miniplot FROM community;
+<div class="layout"><nav aria-label="Documentation"><a href="index.html" aria-current="page">Overview</a><a href="functions.html">SQL reference</a><a href="python.html">Embedded Python API</a><a href="guide.html">User guide</a><a href="reports.html">Reports and integration</a><a href="performance.html">Performance tests</a></nav>
+<main id="main"><section class="intro"><h1>Miniplot</h1><p>Turn DuckDB queries into interactive charts, HTML reports, and image exports.</p>
+<div class="quick-links"><a href="guide.html">User guide</a><a href="functions.html">SQL reference</a></div></section>
+<h2>Quick start</h2><pre><code>INSTALL miniplot FROM community;
 LOAD miniplot;
 SELECT pie_chart_html([&#x27;A&#x27;, &#x27;B&#x27;], [1.0, 2.0], &#x27;Shares&#x27;);</code></pre>
-<h2>機能ガイド</h2><div class="sections"><a class="section" href="guide.html"><strong>チャートの種類と軸</strong><span>基本チャート、時間軸、3D、ヒートマップ、WebGLの利用例を掲載しています。</span></a><a class="section" href="reports.html"><strong>レポートと出力</strong><span>JSONのレポート仕様、HTML、PNGとPDFの出力方法を説明します。</span></a><a class="section" href="python.html"><strong>集約と前処理</strong><span>時系列縮約、欠損による区間分割、ヒストグラムの利用方法を掲載しています。</span></a><a class="section" href="performance.html"><strong>性能と検証条件</strong><span>データサイズ、シリアライズ、出力の計測条件と結果を確認できます。</span></a></div>
-<h2>関連ツール</h2><div class="siblings"><a href="https://nkwork9999.github.io/duck-orch/">duckOrch</a><a href="https://nkwork9999.github.io/duckSMILES/">duckSMILES</a><a href="https://nkwork9999.github.io/duckgl/">DuckGL</a></div>
+<h2>Feature guides</h2><div class="sections"><a class="section" href="guide.html"><strong>Chart types and axes</strong><span>See examples of standard charts, dates and times, 3D, heatmaps, and WebGL.</span></a><a class="section" href="reports.html"><strong>Reports and exports</strong><span>Build reports from JSON and export HTML, PNG, or PDF.</span></a><a class="section" href="python.html"><strong>Aggregation and preparation</strong><span>Reduce time series, preserve gaps, and compute histograms and other summaries.</span></a><a class="section" href="performance.html"><strong>Performance and test setup</strong><span>Review dataset sizes, serialization, export conditions, and results.</span></a></div>
+<h2>Related tools</h2><div class="siblings"><a href="https://nkwork9999.github.io/duck-orch/">duckOrch</a><a href="https://nkwork9999.github.io/duckSMILES/">duckSMILES</a><a href="https://nkwork9999.github.io/duckgl/">DuckGL</a></div>
 
-<footer>対応ソース <a href="https://github.com/nkwork9999/miniplot/tree/e66d4aa6687a1fcad0bf6a18b447399b160d4959"><code>e66d4aa6687a</code></a> · DuckDB 2.0.0</footer>
+<footer>Source revision <a href="https://github.com/nkwork9999/miniplot/tree/d37132d37769ebdf228cef5d925249e5bff89f92"><code>d37132d37769</code></a> · DuckDB 2.0.0</footer>
 </main></div></body></html>

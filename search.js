@@ -11,7 +11,7 @@ if (filter) {
       card.hidden = !terms.every(term => text.includes(term));
       if (!card.hidden) count++;
     }
-    matches.textContent = terms.length ? `${count}件` : "";
+    matches.textContent = terms.length ? `${count} ${count === 1 ? "match" : "matches"}` : "";
   };
   filter.addEventListener("input", refresh);
   refresh();
