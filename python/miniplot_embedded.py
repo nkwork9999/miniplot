@@ -491,6 +491,106 @@ class TimeSeriesDiff:
 
 
 @dataclass(frozen=True)
+class SankeyLink:
+    stage: int
+    source: str
+    destination: str | None
+    weight: float
+    collapsed: bool = False
+
+
+@dataclass(frozen=True)
+class SankeySummary:
+    links: tuple[SankeyLink, ...]
+    stage_totals: tuple[tuple[int, float], ...]
+    invalid_rows: int
+
+
+class SankeyFlow:
+    """Summarize nonnegative movement between consecutive named stages."""
+
+    def __init__(self, connection: DuckDBPyConnection, relation: str):
+        self._db = connection
+        self._relation = _quote_identifier(relation)
+        self._aggregate = f"""
+            WITH rows AS MATERIALIZED (
+                SELECT stage, source, destination, amount,
+                       coalesce(stage >= 0 AND source <> '' AND destination <> ''
+                                AND isfinite(amount) AND amount >= 0, false) AS valid
+                FROM main.{self._relation}
+            ), links AS (
+                SELECT stage, source, destination, fsum(amount) AS weight
+                FROM rows WHERE valid GROUP BY stage, source, destination HAVING fsum(amount) > 0
+            )
+        """
+
+    @staticmethod
+    def _threshold(minimum):
+        if type(minimum) not in (int, float) or not 0 <= minimum <= float_info.max:
+            raise ValueError("minimum must be finite and nonnegative")
+
+    def summarize(self, *, minimum: float = 0) -> SankeySummary:
+        self._threshold(minimum)
+        links, totals, invalid = self._db.execute(self._aggregate + """
+            , classified AS (
+                SELECT stage, source, CASE WHEN weight >= ? THEN destination END AS destination, weight
+                FROM links
+            ), display AS MATERIALIZED (
+                SELECT stage, source, destination, fsum(weight) AS weight
+                FROM classified GROUP BY stage, source, destination
+            ), summary AS (
+                SELECT stage, fsum(weight) AS total FROM display GROUP BY stage
+            )
+            SELECT
+                (SELECT list(struct_pack(stage := stage, source := source, destination := destination, weight := weight)
+                             ORDER BY stage, source, destination NULLS LAST) FROM display),
+                (SELECT list(struct_pack(stage := stage, total := total) ORDER BY stage) FROM summary),
+                (SELECT count(*) FROM rows WHERE NOT valid)
+        """, [minimum]).fetchone()
+        result = tuple(SankeyLink(link["stage"], link["source"], link["destination"], link["weight"],
+                                 link["destination"] is None) for link in (links or []))
+        stage_totals = tuple((row["stage"], row["total"]) for row in (totals or []))
+        if any(not isfinite(total) for _, total in stage_totals):
+            raise ValueError("total flow exceeds the numeric range")
+        return SankeySummary(result, stage_totals, invalid)
+
+    def expand(self, stage: int, source: str, *, minimum: float) -> tuple[SankeyLink, ...]:
+        """Return the original links represented by a collapsed source at one stage."""
+        self._threshold(minimum)
+        if type(stage) is not int or not 0 <= stage < (1 << 63) or type(source) is not str or not source:
+            raise ValueError("provide a registered source label and a nonnegative stage")
+        rows = self._db.execute(self._aggregate + """
+            SELECT stage, source, destination, weight FROM links
+            WHERE stage = ? AND source = ? AND weight < ? ORDER BY destination
+        """, [stage, source, minimum]).fetchall()
+        return tuple(SankeyLink(*row) for row in rows)
+
+    def chart(self, *, title: str, minimum: float = 0) -> str:
+        if type(title) is not str:
+            raise TypeError("title must be a string")
+        flow = self.summarize(minimum=minimum)
+        nodes = {}
+        starts, ends, weights, origins = [], [], [], []
+        for link in flow.links:
+            start = (link.stage, link.source, None)
+            end = ((link.stage + 1, "Other", link.source) if link.collapsed
+                   else (link.stage + 1, link.destination, None))
+            starts.append(nodes.setdefault(start, len(nodes)))
+            ends.append(nodes.setdefault(end, len(nodes)))
+            weights.append(link.weight)
+            origins.append([link.stage, link.source, link.destination, link.collapsed])
+        trace = {
+            "type": "sankey",
+            "node": {"label": [f"{label} (stage {stage})" if collapsed_source is None
+                               else f"Other from {collapsed_source} (stage {stage})"
+                               for stage, label, collapsed_source in nodes]},
+            "link": {"source": starts, "target": ends, "value": weights, "customdata": origins},
+        }
+        report = dumps({"title": title, "sections": [{"data": [trace]}]}, allow_nan=False)
+        return self._db.execute("SELECT chart_report_html(?::VARCHAR)", [report]).fetchone()[0]
+
+
+@dataclass(frozen=True)
 class GridWindow:
     x_start: int
     x_end: int

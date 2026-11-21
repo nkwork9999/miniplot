@@ -605,6 +605,9 @@ into clipped intervals, ending the state at a missing event or when its maximum 
 `TreeMap.summarize` rolls leaf weights up to an explicitly selected depth, and `TreeMap.chart` renders the
 hierarchy as a treemap. `TimeSeriesDiff.compare` aligns two revisions by time and stable row key.
 `TimeSeriesDiff.chart` renders their measurements, absolute differences and relative differences.
+`SankeyFlow(connection, relation)` aggregates `stage`, `source`, `destination` and nonnegative `amount`
+columns. A minimum link weight groups smaller destinations by source. Use `expand` to recover their
+original weights and `chart` to render the staged flow. The summary reports invalid rows separately.
 `SparseHeatmap(connection, relation, columns=..., rows=...)` reads unique `xbin`, `ybin`, `value` records.
 Use `sparse(window)` for the observed records or `dense(window)` for a bounded rectangle including
 unobserved and out-of-bounds cells. Zero and NULL have separate states.
