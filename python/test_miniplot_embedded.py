@@ -5,7 +5,7 @@ import unittest
 from datetime import datetime, timedelta
 
 import duckdb
-from miniplot_embedded import ChartBuilder, LineChartSpec, TimeSeriesChart, TimeSeriesDataset
+from miniplot_embedded import BucketSize, ChartBuilder, LineChartSpec, TimeSeriesChart, TimeSeriesDataset
 
 
 class ChartTests(unittest.TestCase):
@@ -63,3 +63,22 @@ class ChartTests(unittest.TestCase):
                          self.draw([0, 1, 2, 3, 4, 5], [0, 80, 1, -4, 1, 0], 1))
         with self.assertRaises(KeyError):
             builder.line(LineChartSpec("daily", "private", start, end, width=1, title="Hidden"))
+
+    def test_multiple_series_share_buckets_and_keep_missing_values_per_series(self):
+        self.db.execute("""
+            CREATE TABLE wide(sequence BIGINT, observed TIMESTAMP, arrivals DOUBLE, departures DOUBLE);
+            INSERT INTO wide VALUES
+              (1, TIMESTAMP '2026-01-01 01:00:00', 3, NULL),
+              (2, TIMESTAMP '2026-01-01 01:12:00', 7, NULL),
+              (3, TIMESTAMP '2026-01-01 02:00:00', NULL, 20),
+              (4, TIMESTAMP '2026-01-01 02:49:00', 8, 40);
+        """)
+        builder = ChartBuilder(self.db, {"counts": TimeSeriesDataset("wide", "observed", "sequence",
+                                                                       {"a": "arrivals", "d": "departures"})})
+        output = builder.bucketed_series("counts", ("a", "d"), self.start, self.start + timedelta(days=1),
+                                         size=BucketSize.HOUR)
+        self.assertEqual([(row.bucket.hour, row.series_id, row.mean, row.observations) for row in output],
+                         [(1, "a", 5, 2), (1, "d", None, 0), (2, "a", 8, 1), (2, "d", 30, 2)])
+        with self.assertRaises(KeyError):
+            builder.bucketed_series("counts", ("hidden",), self.start, self.start + timedelta(days=1),
+                                    size=BucketSize.HOUR)

@@ -121,6 +121,21 @@ class LineChartSpec:
             raise ValueError("expected a nonempty time range and width in [1, 65535]")
 
 
+class BucketSize(Enum):
+    MINUTE = "minute"
+    HOUR = "hour"
+    DAY = "day"
+    MONTH = "month"
+
+
+@dataclass(frozen=True)
+class BucketObservation:
+    bucket: datetime
+    series_id: str
+    mean: float | None
+    observations: int
+
+
 class ChartBuilder:
     """Resolve caller chart specifications against the host's dataset registry."""
 
@@ -150,6 +165,39 @@ class ChartBuilder:
         """
         sql = _SERIES_SQL.format(point_source=source, segment_expression="0")
         return self._db.execute(sql + _LINE_SQL, [spec.start, spec.end, spec.width, spec.title]).fetchone()[0]
+
+    def bucketed_series(self, dataset_id: str, series: tuple[str, ...], start: datetime,
+                        end: datetime, *, size: BucketSize) -> list[BucketObservation]:
+        """Aggregate requested wide columns in one scan, then emit long rows."""
+        if type(dataset_id) is not str or type(series) is not tuple or not 1 <= len(series) <= 128:
+            raise TypeError("expected a dataset ID and one to 128 registered series IDs")
+        if any(type(name) is not str for name in series) or len(set(series)) != len(series):
+            raise ValueError("series IDs must be distinct strings")
+        if type(size) is not BucketSize:
+            raise TypeError("expected a BucketSize")
+        if any(type(value) is not datetime or value.tzinfo is not None for value in (start, end)) or end <= start:
+            raise ValueError("expected a nonempty range of naive datetimes")
+        relation, time, _, measures = self._datasets[dataset_id]
+        aggregates, grouped = [], []
+        for index, name in enumerate(series):
+            column = f"{measures[name]}::DOUBLE"
+            aggregates += [
+                f"avg({column}) FILTER (WHERE isfinite({column})) AS mean_{index}",
+                f"count(*) FILTER (WHERE isfinite({column})) AS count_{index}",
+            ]
+            grouped.append(f"struct_pack(mean := mean_{index}, n := count_{index})")
+        rows = self._db.execute(f"""
+            WITH buckets AS (
+                SELECT date_trunc(?, {time})::TIMESTAMP AS bucket_ts, {", ".join(aggregates)}
+                FROM main.{relation} WHERE {time} >= ?::TIMESTAMP AND {time} < ?::TIMESTAMP
+                GROUP BY bucket_ts
+            )
+            SELECT bucket_ts, ordinal, summary.mean, summary.n FROM buckets
+            CROSS JOIN UNNEST([{", ".join(grouped)}]) WITH ORDINALITY AS t(summary, ordinal)
+            ORDER BY bucket_ts, ordinal
+        """, [size.value, start, end]).fetchall()
+        return [BucketObservation(bucket, series[ordinal - 1], mean, observations)
+                for bucket, ordinal, mean, observations in rows]
 
 
 @dataclass(frozen=True)
