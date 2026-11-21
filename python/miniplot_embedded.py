@@ -1,8 +1,9 @@
 """A time-series HTML chart rendered on a host-provisioned Miniplot connection."""
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from enum import Enum
+from graphlib import CycleError, TopologicalSorter
 from itertools import chain
 from json import dumps
 from math import exp, isfinite, log
@@ -255,6 +256,320 @@ class StateTimeline:
             WHERE start_time < end_time AND state IS NOT NULL ORDER BY start_time
         """, [start, end, max_gap, times, states]).fetchall()
         return [StateInterval(*row) for row in rows]
+
+
+@dataclass(frozen=True)
+class CalendarRange:
+    start: date
+    end: date
+
+    def __post_init__(self):
+        if type(self.start) is not date or type(self.end) is not date or self.end <= self.start:
+            raise ValueError("expected a nonempty half-open date range")
+
+
+@dataclass(frozen=True)
+class CalendarDay:
+    day: date
+    state: str
+    value: float | None
+    observations: int
+
+
+class CalendarData:
+    """Fill a date grid with separate observed, missing and out-of-coverage states."""
+
+    def __init__(self, connection: DuckDBPyConnection):
+        self._db = connection
+
+    def daily(self, times: list[datetime], values: list[float | None], *,
+              displayed: CalendarRange, covered: CalendarRange, timezone_name: str) -> list[CalendarDay]:
+        if type(displayed) is not CalendarRange or type(covered) is not CalendarRange:
+            raise TypeError("expected CalendarRange bounds")
+        if type(timezone_name) is not str or not timezone_name:
+            raise ValueError("timezone_name must be a nonempty string")
+        if type(times) is not list or type(values) is not list or len(times) != len(values):
+            raise ValueError("times and values must be lists of equal length")
+        if any(type(t) is not datetime or t.utcoffset() is None for t in times):
+            raise ValueError("calendar observations require timezone-aware datetimes")
+        if any(v is not None and (type(v) not in (int, float) or not -float_info.max <= v <= float_info.max)
+               for v in values):
+            raise ValueError("calendar values must be finite numbers or None")
+        rows = self._db.execute("""
+            WITH parameters AS (
+                SELECT ?::DATE AS display_lo, ?::DATE AS display_hi,
+                    ?::DATE AS covered_lo, ?::DATE AS covered_hi, ?::VARCHAR AS zone
+            ), samples AS (
+                SELECT unnest(?::TIMESTAMPTZ[]) AS observed_at, unnest(?::DOUBLE[]) AS value
+            ), observed AS (
+                SELECT timezone(zone, observed_at)::DATE AS d, value FROM samples, parameters
+            ), totals AS (
+                SELECT d, fsum(value) AS total, count(value) AS measurements
+                FROM observed, parameters
+                WHERE d >= greatest(display_lo, covered_lo) AND d < least(display_hi, covered_hi)
+                GROUP BY d
+            ), grid AS (
+                SELECT dt::DATE AS d, dt >= covered_lo AND dt < covered_hi AS covered
+                FROM parameters, generate_series(display_lo, display_hi - 1, INTERVAL 1 DAY) g(dt)
+            )
+            SELECT d, CASE WHEN NOT covered THEN 'outside'
+                 WHEN coalesce(measurements, 0) = 0 THEN 'missing' ELSE 'observed' END,
+                 total, coalesce(measurements, 0)
+            FROM grid LEFT JOIN totals USING (d) ORDER BY d
+        """, [displayed.start, displayed.end, covered.start, covered.end, timezone_name, times, values]).fetchall()
+        return [CalendarDay(*row) for row in rows]
+
+
+@dataclass(frozen=True)
+class MarketSession:
+    session_id: str
+    start: datetime
+    end: datetime
+
+    def __post_init__(self):
+        if type(self.session_id) is not str or not self.session_id:
+            raise ValueError("session ID must be a nonempty string")
+        if any(type(t) is not datetime or t.utcoffset() is None for t in (self.start, self.end)):
+            raise ValueError("session boundaries must be timezone-aware")
+        start, end = self.start.astimezone(timezone.utc), self.end.astimezone(timezone.utc)
+        if start >= end:
+            raise ValueError("the session must be nonempty")
+        object.__setattr__(self, "start", start)
+        object.__setattr__(self, "end", end)
+
+
+@dataclass(frozen=True)
+class QuoteTrade:
+    time: datetime
+    sequence: int
+    price: float
+    volume: float
+
+    def __post_init__(self):
+        if type(self.time) is not datetime or self.time.utcoffset() is None:
+            raise ValueError("trade time must be timezone-aware")
+        object.__setattr__(self, "time", self.time.astimezone(timezone.utc))
+        if type(self.sequence) is not int or not -(1 << 63) <= self.sequence < (1 << 63):
+            raise ValueError("sequence must be a signed 64-bit integer")
+        if any(type(n) not in (float, int) or not 0 <= n <= float_info.max for n in (self.price, self.volume)):
+            raise ValueError("price and volume must be finite nonnegative numbers")
+
+
+@dataclass(frozen=True)
+class MarketBar:
+    session_id: str
+    open: float | None
+    high: float | None
+    low: float | None
+    close: float | None
+    volume: float | None
+    trades: int
+
+
+class OHLC:
+    """Aggregate trades by explicit market sessions and tie-break on exchange sequence."""
+
+    def __init__(self, connection: DuckDBPyConnection):
+        self._db = connection
+
+    def bars(self, sessions: list[MarketSession], trades: list[QuoteTrade]) -> list[MarketBar]:
+        if type(sessions) is not list or any(type(s) is not MarketSession for s in sessions):
+            raise TypeError("expected a list of MarketSession values")
+        if type(trades) is not list or any(type(t) is not QuoteTrade for t in trades):
+            raise TypeError("expected a list of QuoteTrade values")
+        ordered = sorted(sessions, key=lambda session: session.start)
+        if len({s.session_id for s in sessions}) != len(sessions) or any(
+            left.end > right.start for left, right in zip(ordered, ordered[1:])
+        ):
+            raise ValueError("sessions must have unique IDs and nonoverlapping intervals")
+        if len({(t.time, t.sequence) for t in trades}) != len(trades):
+            raise ValueError("the trade time and sequence pair must be unique")
+        rows = self._db.execute("""
+            WITH sessions AS MATERIALIZED (
+                SELECT unnest(?::VARCHAR[]) AS session_id, unnest(?::TIMESTAMPTZ[]) AS opens_at,
+                       unnest(?::TIMESTAMPTZ[]) AS closes_at
+            ), trades AS (
+                SELECT unnest(?::TIMESTAMPTZ[]) AS traded_at, unnest(?::BIGINT[]) AS seq,
+                       unnest(?::DOUBLE[]) AS price, unnest(?::DOUBLE[]) AS volume
+            ), assigned AS (
+                SELECT session_id, traded_at, seq, price, volume FROM trades
+                ASOF JOIN sessions ON traded_at >= opens_at WHERE traded_at < closes_at
+            ), bars AS (
+                SELECT session_id, first(price ORDER BY traded_at, seq) AS opening,
+                       max(price) AS high, min(price) AS low, last(price ORDER BY traded_at, seq) AS closing,
+                       fsum(volume) AS volume, count(*) AS number_trades
+                FROM assigned GROUP BY session_id
+            )
+            SELECT session_id, opening, high, low, closing, volume, coalesce(number_trades, 0)
+            FROM sessions LEFT JOIN bars USING (session_id) ORDER BY opens_at
+        """, [[s.session_id for s in ordered], [s.start for s in ordered], [s.end for s in ordered],
+              [t.time for t in trades], [t.sequence for t in trades],
+              [t.price for t in trades], [t.volume for t in trades]]).fetchall()
+        return [MarketBar(*row) for row in rows]
+
+
+@dataclass(frozen=True)
+class SeriesPoint:
+    time: datetime
+    key: int
+    value: float | None
+
+    def __post_init__(self):
+        if type(self.time) is not datetime or self.time.tzinfo is not None:
+            raise ValueError("use naive timestamps on the same time scale")
+        if type(self.key) is not int or not -(1 << 63) <= self.key < (1 << 63):
+            raise ValueError("series key must be a signed 64-bit integer")
+        if self.value is not None and (type(self.value) not in (float, int)
+                                       or not -float_info.max <= self.value <= float_info.max):
+            raise ValueError("observations must be finite numbers or None")
+
+
+@dataclass(frozen=True)
+class SeriesDifference:
+    time: datetime
+    key: int
+    old: float | None
+    new: float | None
+    delta: float | None
+    ratio: float | None
+    state: str
+
+
+class TimeSeriesDiff:
+    """Align two chart revisions by timestamp and stable row identity."""
+
+    def __init__(self, connection: DuckDBPyConnection):
+        self._db = connection
+
+    @staticmethod
+    def _bind(series):
+        if type(series) is not list or any(type(point) is not SeriesPoint for point in series):
+            raise TypeError("expected a list of SeriesPoint values")
+        if len({(point.time, point.key) for point in series}) != len(series):
+            raise ValueError("timestamp and key pairs must be unique per series")
+        return [[point.time for point in series], [point.key for point in series], [point.value for point in series]]
+
+    def compare(self, old: list[SeriesPoint], new: list[SeriesPoint]) -> list[SeriesDifference]:
+        bindings = self._bind(old) + self._bind(new)
+        rows = self._db.execute("""
+            WITH baseline AS (
+                SELECT unnest(?::TIMESTAMP[]) AS ts, unnest(?::BIGINT[]) AS id, unnest(?::DOUBLE[]) AS old
+            ), candidate AS (
+                SELECT unnest(?::TIMESTAMP[]) AS ts, unnest(?::BIGINT[]) AS id, unnest(?::DOUBLE[]) AS revised
+            )
+            SELECT coalesce(baseline.ts,candidate.ts) AS ts, coalesce(baseline.id,candidate.id) AS id,
+                   old, revised, revised - old AS delta, (revised - old) / nullif(old, 0) AS ratio,
+                   CASE WHEN baseline.id IS NULL THEN 'added'
+                        WHEN candidate.id IS NULL THEN 'removed'
+                        WHEN old IS NULL OR revised IS NULL THEN 'missing_value'
+                        WHEN old = 0 THEN 'zero_baseline' ELSE 'matched' END
+            FROM baseline FULL OUTER JOIN candidate
+                ON baseline.ts = candidate.ts AND baseline.id = candidate.id
+            ORDER BY ts, id
+        """, bindings).fetchall()
+        return [SeriesDifference(*row) for row in rows]
+
+    def chart(self, old: list[SeriesPoint], new: list[SeriesPoint], *, title: str) -> str:
+        """Render measurements, differences and relative changes on separate charts."""
+        if type(title) is not str:
+            raise TypeError("title must be a string")
+        rows = self.compare(old, new)
+        times = [r.time.isoformat() for r in rows]
+        def trace(name, attr, scale=1):
+            values = [getattr(r, attr) for r in rows]
+            return {"type": "scatter", "mode": "lines+markers", "connectgaps": False, "name": name,
+                    "x": times, "y": [v * scale if v is not None and isfinite(v * scale) else None for v in values]}
+        sections = [
+            {"heading": "Measurements", "data": [trace("Previous", "old"), trace("Current", "new")]},
+            {"heading": "Absolute change", "data": [trace("Difference", "delta")]},
+            {"heading": "Relative change (%)", "data": [trace("Percent change", "ratio", 100)]},
+        ]
+        html, = self._db.execute("SELECT chart_report_html(?::VARCHAR)", [dumps({
+            "title": title, "sections": sections,
+        }, allow_nan=False)]).fetchone()
+        return html
+
+
+@dataclass(frozen=True)
+class HierarchyNode:
+    key: str
+    parent: str | None
+    label: str
+    weight: float | None = None
+
+    def __post_init__(self):
+        if type(self.key) is not str or not self.key or type(self.label) is not str:
+            raise ValueError("hierarchy nodes require a nonempty key and a label")
+        if self.parent is not None and (type(self.parent) is not str or not self.parent):
+            raise ValueError("parent must be a nonempty key or None")
+        if self.weight is not None and (type(self.weight) not in (float, int)
+                                        or not 0 <= self.weight <= float_info.max):
+            raise ValueError("leaf weight must be finite and nonnegative")
+
+
+@dataclass(frozen=True)
+class TreeMapArea:
+    key: str
+    parent: str | None
+    label: str
+    depth: int
+    total: float
+
+
+class TreeMap:
+    """Build a leaf-weight hierarchy and render only the requested subtree depth."""
+
+    def __init__(self, connection: DuckDBPyConnection):
+        self._db = connection
+
+    def summarize(self, nodes: list[HierarchyNode], *, root: str, max_depth: int) -> list[TreeMapArea]:
+        if type(nodes) is not list or any(type(node) is not HierarchyNode for node in nodes):
+            raise TypeError("expected a list of HierarchyNode values")
+        if type(max_depth) is not int or max_depth < 0:
+            raise ValueError("max_depth must be a nonnegative integer")
+        known = {node.key for node in nodes}
+        if len(known) != len(nodes):
+            raise ValueError("each ID must have exactly one parent declaration")
+        if type(root) is not str or root not in known:
+            raise KeyError(root)
+        parents = {node.parent for node in nodes if node.parent is not None}
+        if not parents <= known:
+            raise ValueError("every parent must be declared")
+        try:
+            TopologicalSorter({n.key: () if n.parent is None else (n.parent,) for n in nodes}).prepare()
+        except CycleError as error:
+            raise ValueError("tree contains a cycle") from error
+        if any((node.key in parents) == (node.weight is not None) for node in nodes):
+            raise ValueError("provide weights for leaves only")
+        records = [{"id": n.key, "parent": n.parent, "label": n.label, "weight": n.weight} for n in nodes]
+        rows = self._db.execute("""
+            WITH RECURSIVE nodes AS MATERIALIZED (
+                SELECT n.id AS id, n.parent AS parent, n.label AS label, n.weight AS weight
+                FROM unnest(?::STRUCT(id VARCHAR, parent VARCHAR, label VARCHAR, weight DOUBLE)[]) t(n)
+            ), subtree(id, parent, label, weight, depth, ancestors) AS (
+                SELECT id, NULL::VARCHAR, label, weight, 0, [id] FROM nodes WHERE id = ?
+                UNION ALL
+                SELECT n.id, n.parent, n.label, n.weight, s.depth + 1, list_append(s.ancestors, n.id)
+                FROM nodes n JOIN subtree s ON n.parent = s.id
+            ), projections AS (
+                SELECT unnest(ancestors) AS id, weight FROM subtree WHERE weight IS NOT NULL
+            ), areas AS (
+                SELECT id, fsum(weight) AS total FROM projections GROUP BY id
+            )
+            SELECT id, parent, label, depth, total FROM subtree JOIN areas USING (id)
+            WHERE depth <= ? ORDER BY depth, id
+        """, [records, root, max_depth]).fetchall()
+        return [TreeMapArea(*row) for row in rows]
+
+    def chart(self, nodes: list[HierarchyNode], *, root: str, max_depth: int, title: str) -> str:
+        if type(title) is not str:
+            raise TypeError("title must be a string")
+        summary = self.summarize(nodes, root=root, max_depth=max_depth)
+        trace = {"type": "treemap", "ids": [n.key for n in summary], "labels": [n.label for n in summary],
+                 "parents": [n.parent or "" for n in summary], "values": [n.total for n in summary],
+                 "branchvalues": "total"}
+        spec = dumps({"title": title, "sections": [{"data": [trace]}]}, allow_nan=False)
+        return self._db.execute("SELECT chart_report_html(?::VARCHAR)", [spec]).fetchone()[0]
 
 
 @dataclass(frozen=True)
